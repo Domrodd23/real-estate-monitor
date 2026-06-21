@@ -23,8 +23,14 @@ from .logging_setup import get_logger
 log = get_logger("remon.http")
 
 DEFAULT_HEADERS = {
-    # A plain, honest UA. We only hit public data endpoints / listing pages.
-    "User-Agent": "real-estate-monitor/0.1 (public-data; +https://github.com/)",
+    # A real browser UA: some public sites (e.g. zillow.com) 403 non-browser
+    # agents and datacenter IPs. We only read public data pages / files.
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
 }
 DEFAULT_TIMEOUT = 60  # seconds
 

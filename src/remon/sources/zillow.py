@@ -70,6 +70,25 @@ SERIES: Dict[str, Dict] = {
     },
 }
 
+# Last-known-good canonical file URLs on Zillow's CDN. Used ONLY when page
+# discovery fails (e.g. zillow.com 403s a datacenter IP in CI). The CDN host
+# (files.zillowstatic.com) is not IP-blocked. Page discovery stays primary so a
+# Zillow filename change is still picked up whenever the page is reachable.
+FALLBACK_URLS: Dict[str, str] = {
+    "zillow_zhvi_zip":
+        "https://files.zillowstatic.com/research/public_csvs/zhvi/"
+        "Zip_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv",
+    "zillow_zori_zip":
+        "https://files.zillowstatic.com/research/public_csvs/zori/"
+        "Zip_zori_uc_sfrcondomfr_sm_month.csv",
+    "zillow_invt_fs_metro":
+        "https://files.zillowstatic.com/research/public_csvs/invt_fs/"
+        "Metro_invt_fs_uc_sfrcondo_sm_month.csv",
+    "zillow_new_listings_metro":
+        "https://files.zillowstatic.com/research/public_csvs/new_listings/"
+        "Metro_new_listings_uc_sfrcondo_sm_month.csv",
+}
+
 
 # --------------------------------------------------------------------------- #
 # Link discovery
@@ -130,19 +149,24 @@ def fetch_zillow(config: Config, only: Optional[List[str]] = None) -> Dict[str, 
             results[name] = fresh
             continue
 
-        if not page_ok:
-            results[name] = _fallback_stale(raw_dir, name)
-            continue
-
-        try:
-            url = select_one(urls, spec["require"], spec["exclude"], spec["label"])
-        except DownloadError as exc:
-            log.error("%s", exc)
+        # Determine the download URL: page discovery first, canonical fallback next.
+        url = None
+        if page_ok:
+            try:
+                url = select_one(urls, spec["require"], spec["exclude"], spec["label"])
+            except DownloadError as exc:
+                log.warning("%s — trying canonical fallback URL.", exc)
+        if not url:
+            url = FALLBACK_URLS.get(name)
+            if url:
+                log.warning("[%s] page discovery unavailable; using canonical "
+                            "fallback URL: %s", name, url)
+        if not url:
             results[name] = _fallback_stale(raw_dir, name)
             continue
 
         if not url_resolves(url):
-            log.error("[%s] discovered URL did not resolve: %s", name, url)
+            log.error("[%s] URL did not resolve: %s", name, url)
             results[name] = _fallback_stale(raw_dir, name)
             continue
 
