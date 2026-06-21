@@ -9,6 +9,8 @@ dashboard published to GitHub Pages.
 It is an **independent tool built from public sources only**. It does not
 connect to, scrape, or replicate any paid service.
 
+**Live dashboard:** https://domrodd23.github.io/real-estate-monitor/
+
 ---
 
 ## What it tracks
@@ -214,8 +216,8 @@ real-estate-monitor/
 - [x] **Phase 3** — Redfin, FRED, Census fetch
 - [x] **Phase 4** — compute metrics (data/processed/metrics.csv)
 - [x] **Phase 5** — dashboard (docs/index.html + charts + CSV export)
-- [ ] Phase 6 — GitHub Actions + Pages
-- [ ] Phase 7 — expanded data + comparison table
-- [ ] Phase 8 — cash-flow + reverse-offer calculators
-- [ ] Phase 9 — PDF + Excel exports
-- [ ] Phase 10 — forecast module
+- [x] **Phase 6** — GitHub Actions + Pages (live, self-refreshing monthly)
+- [x] **Phase 7** — expanded data + sortable multi-market comparison table
+- [x] **Phase 8** — cash-flow projector + reverse-offer calculator (math independently verified)
+- [x] **Phase 9** — per-market PDF reports + Excel workbook export
+- [x] **Phase 10** — forecast module (per-ZIP time-series + national driver model, both backtested)

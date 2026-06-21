@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from remon.config import load_config  # noqa: E402
 from remon.logging_setup import get_logger  # noqa: E402
-from remon import dashboard  # noqa: E402
+from remon import dashboard, exports  # noqa: E402
 
 log = get_logger("build")
 
@@ -23,7 +23,8 @@ log = get_logger("build")
 def build_all() -> None:
     config = load_config()
     log.info("build.py starting")
-    index = dashboard.render_dashboard(config)
+    export_links = exports.generate_exports(config)
+    index = dashboard.render_dashboard(config, export_links=export_links)
     log.info("Open the dashboard: %s", index)
 
 

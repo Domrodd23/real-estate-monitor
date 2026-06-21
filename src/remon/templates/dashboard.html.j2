@@ -8,8 +8,9 @@
 <style>
   :root { --line:#d9dee3; --muted:#5b6670; --pos:#0a7d2c; --neg:#b4232a; --bg-alt:#f6f8fa; }
   * { box-sizing: border-box; }
+  html { color-scheme: light; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-         color:#1b1f23; margin:0; line-height:1.45; }
+         color:#1b1f23; background:#ffffff; margin:0; line-height:1.45; }
   .wrap { max-width:1100px; margin:0 auto; padding:24px 18px 60px; }
   h1 { font-size:1.7rem; margin:0 0 4px; }
   h2 { font-size:1.3rem; margin:38px 0 6px; padding-top:14px; border-top:2px solid var(--line); }
@@ -38,6 +39,10 @@
           background:#eef1f4; color:var(--muted); margin-left:6px; }
   .stale { background:#fdecec; color:var(--neg); }
   code { background:var(--bg-alt); padding:1px 5px; border-radius:4px; }
+  #compare th { cursor:pointer; user-select:none; white-space:nowrap; }
+  #compare th:hover { background:var(--bg-alt); }
+  #compare th.sort-asc::after { content:" \25B2"; font-size:.65em; color:var(--muted); }
+  #compare th.sort-desc::after { content:" \25BC"; font-size:.65em; color:var(--muted); }
 </style>
 </head>
 <body>
@@ -56,6 +61,40 @@
     (ZIP, metro, or county) and source date; blanks mean the free data does not
     support that metric for that area.
   </div>
+
+  <h2>Compare all markets</h2>
+  <p class="sub">Every tracked ZIP, side by side — click any column heading to sort.
+     Days-on-market and price-cut share are county-level (Redfin) and repeat within
+     a market. Blanks (—) sort to the bottom.</p>
+  <table id="compare">
+    <thead><tr>
+      {% for h in comparison.headers %}
+      <th data-type="{{ h.type }}" onclick="sortTable(this)">{{ h.label }}</th>
+      {% endfor %}
+    </tr></thead>
+    <tbody>
+      {% for row in comparison.rows %}
+      <tr>{% for c in row %}<td data-v="{{ c.v }}">{{ c.d }}</td>{% endfor %}</tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% include 'calculator.html.j2' %}
+
+  {% if forecast_meta %}
+  <h2>Price forecast — public-data model</h2>
+  <div class="disclaimer">
+    A transparent public-data forecast with a stated track record —
+    <strong>not a prediction, not a guarantee, and not any paid service's score</strong>.
+    Two methods are reported per ZIP, each next to its own backtest error: a per-ZIP
+    time-series model (ETS on ZHVI history) and a national driver model, plus their blend.
+  </div>
+  <p class="sub">National driver model: trained on {{ forecast_meta.n_zips }} ZIPs,
+    out-of-time test of {{ forecast_meta.n_test }} ZIP-months —
+    <strong>mean absolute error {{ forecast_meta.mae_pp }} pp</strong> on the 12-month change,
+    directional accuracy {{ forecast_meta.dir_acc }}%. Top drivers (permutation importance):
+    {% for name, v in forecast_meta.drivers %}{{ name }} ({{ v }}){% if not loop.last %}, {% endif %}{% endfor %}.</p>
+  {% endif %}
 
   {% for m in markets %}
   <h2>{{ m.name }}</h2>
@@ -95,6 +134,27 @@
      Price-to-rent & overvaluation proxy: derived from ZHVI + ZORI. A blank means
      no rent data for that ZIP or too little history for a reliable proxy.</p>
 
+  {% if forecast_meta %}
+  <h3>Price forecast by ZIP — public-data model (with backtest error)</h3>
+  <table>
+    <thead><tr>
+      <th>ZIP</th><th>12-mo (time-series)</th><th>Backtest MAPE</th>
+      <th>12-mo (driver)</th><th>Driver test err</th><th>Blend 12-mo</th><th>24-mo (time-series)</th>
+    </tr></thead>
+    <tbody>
+    {% for f in m.forecasts %}
+      <tr>
+        <td>{{ f.zip }}</td><td>{{ f.ts12 }}</td><td>{{ f.mape }}</td>
+        <td>{{ f.drv12 }}</td><td>{{ f.drvmae }}</td><td>{{ f.blend }}</td><td>{{ f.ts24 }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="sub">Time-series = ETS on this ZIP's ZHVI history (MAPE from a 12-month holdout).
+     Driver = national gradient-boosted model (its out-of-time test error shown). Blend =
+     average of the two 12-month estimates. A public-data model, not a prediction.</p>
+  {% endif %}
+
   <h3>Home value and rent over time</h3>
   {% for z in m.zips %}
     {% if z.chart %}
@@ -115,10 +175,38 @@
       {% endfor %}
       </tbody>
     </table>
-    <p>Flat CSV export of the latest per-ZIP metrics: <code>metrics_latest.csv</code>
-       (in this folder). Page generated {{ generated }}.</p>
+    {% if export_links %}
+    <p><strong>Downloads:</strong>
+      {% for e in export_links %}<a href="{{ e.href }}">{{ e.label }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
+      · <a href="metrics_latest.csv">Flat CSV (per ZIP)</a></p>
+    {% else %}
+    <p>Flat CSV export of the latest per-ZIP metrics: <code>metrics_latest.csv</code>.</p>
+    {% endif %}
+    <p>Page generated {{ generated }}.</p>
   </div>
 
 </div>
+
+<script>
+function sortTable(th){
+  const table = th.closest('table'), tbody = table.tBodies[0];
+  const idx = Array.from(th.parentNode.children).indexOf(th);
+  const type = th.getAttribute('data-type');
+  const asc = !th.classList.contains('sort-asc');
+  Array.from(th.parentNode.children).forEach(h => h.classList.remove('sort-asc','sort-desc'));
+  th.classList.add(asc ? 'sort-asc' : 'sort-desc');
+  const rows = Array.from(tbody.rows);
+  rows.sort((a,b) => {
+    let av = a.cells[idx].getAttribute('data-v'), bv = b.cells[idx].getAttribute('data-v');
+    const ae = (av===''||av==null), be = (bv===''||bv==null);
+    if (ae && be) return 0;
+    if (ae) return 1;            // blanks always last
+    if (be) return -1;
+    if (type === 'num') return asc ? av-bv : bv-av;
+    return asc ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+  });
+  rows.forEach(r => tbody.appendChild(r));
+}
+</script>
 </body>
 </html>

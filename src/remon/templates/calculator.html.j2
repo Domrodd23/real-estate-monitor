@@ -1,0 +1,223 @@
+<style>
+  #calc .calc-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; margin:10px 0; }
+  #calc fieldset { border:1px solid var(--line); border-radius:6px; padding:10px 12px; margin:0; }
+  #calc legend { font-size:.8rem; color:var(--muted); text-transform:uppercase; letter-spacing:.02em; padding:0 4px; }
+  #calc label { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:.85rem; margin:5px 0; }
+  #calc input, #calc select { width:120px; padding:4px 6px; border:1px solid var(--line); border-radius:4px;
+                              font-size:.85rem; text-align:right; }
+  #calc select#c_zip { width:100%; text-align:left; }
+  #calc .outs { display:flex; flex-wrap:wrap; gap:10px; margin:10px 0; }
+  #calc .out { border:1px solid var(--line); border-radius:6px; padding:8px 14px; min-width:150px; }
+  #calc .out .lbl { color:var(--muted); font-size:.72rem; text-transform:uppercase; }
+  #calc .out .val { font-size:1.25rem; font-weight:600; }
+  #calc .reverse { background:var(--bg-alt); border:1px solid var(--line); border-radius:6px; padding:12px 14px; margin:12px 0; }
+  #calc .reverse .row { display:flex; flex-wrap:wrap; gap:18px; align-items:center; }
+  #calc .reverse .res { font-weight:600; }
+  #proj { font-size:.82rem; }
+  #proj th, #proj td { padding:4px 8px; }
+</style>
+
+<h2>Cash-flow &amp; offer calculator</h2>
+<p class="sub">Pick a ZIP to pre-fill purchase price (ZHVI) and rent (ZORI), then edit any
+   field — outputs and the 20-year projection update live. Interest rate defaults to the
+   current 30-year fixed. All math runs in your browser; nothing is sent anywhere.</p>
+
+<div id="calc">
+  <div class="calc-grid">
+    <fieldset>
+      <legend>Property</legend>
+      <label>Market / ZIP <select id="c_zip"></select></label>
+      <label>Purchase price ($) <input id="c_price" type="number" step="1000"></label>
+      <label>Monthly rent ($) <input id="c_rent" type="number" step="10"></label>
+      <span class="sub" id="rent_note"></span>
+    </fieldset>
+    <fieldset>
+      <legend>Financing</legend>
+      <label>Down payment (%) <input id="c_dp" type="number" step="1" value="25"></label>
+      <label>Interest rate (%) <input id="c_rate" type="number" step="0.01" value="7"></label>
+      <label>Loan term (years) <input id="c_term" type="number" step="1" value="30"></label>
+      <label>Closing costs (% of price) <input id="c_closing" type="number" step="0.5" value="0"></label>
+    </fieldset>
+    <fieldset>
+      <legend>Operating (annual, % of value)</legend>
+      <label>Property tax (%) <input id="c_tax" type="number" step="0.1" value="1.2"></label>
+      <label>Insurance (%) <input id="c_ins" type="number" step="0.1" value="0.5"></label>
+    </fieldset>
+    <fieldset>
+      <legend>Operating (% of rent)</legend>
+      <label>Vacancy (%) <input id="c_vac" type="number" step="1" value="5"></label>
+      <label>Management (%) <input id="c_mgmt" type="number" step="1" value="8"></label>
+      <label>Maintenance (%) <input id="c_maint" type="number" step="1" value="5"></label>
+    </fieldset>
+    <fieldset>
+      <legend>Growth assumptions</legend>
+      <label>Annual rent growth (%) <input id="c_growth" type="number" step="0.5" value="3"></label>
+      <label>Annual appreciation (%) <input id="c_appr" type="number" step="0.5" value="3"></label>
+    </fieldset>
+  </div>
+
+  <div class="outs">
+    <div class="out"><div class="lbl">Monthly cash flow</div><div class="val" id="o_cf">—</div></div>
+    <div class="out"><div class="lbl">Annual cash flow</div><div class="val" id="o_cfyr">—</div></div>
+    <div class="out"><div class="lbl">Net operating income / yr</div><div class="val" id="o_noi">—</div></div>
+    <div class="out"><div class="lbl">Cap rate</div><div class="val" id="o_cap">—</div></div>
+    <div class="out"><div class="lbl">Cash-on-cash</div><div class="val" id="o_coc">—</div></div>
+    <div class="out"><div class="lbl">Mortgage P&amp;I / mo</div><div class="val" id="o_pi">—</div></div>
+    <div class="out"><div class="lbl">Cash invested</div><div class="val" id="o_cashin">—</div></div>
+  </div>
+
+  <div class="reverse">
+    <strong>Reverse offer-price calculator</strong>
+    <p class="sub">What's the most you can pay and still hit a target? Uses the rent and
+       expense assumptions above.</p>
+    <div class="row">
+      <label>Target cap rate (%) <input id="r_cap" type="number" step="0.25" value="6"></label>
+      <span>Max price: <span class="res" id="r_cap_price">—</span></span>
+      <span class="sub" id="r_cap_gap"></span>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <label>Target cash-on-cash (%) <input id="r_coc" type="number" step="0.5" value="8"></label>
+      <span>Max price: <span class="res" id="r_coc_price">—</span></span>
+      <span class="sub" id="r_coc_gap"></span>
+    </div>
+  </div>
+
+  <h3>20-year projection</h3>
+  <table id="proj">
+    <thead><tr>
+      <th>Year</th><th>Rent/mo</th><th>Property value</th><th>NOI</th>
+      <th>Cash flow</th><th>Cumulative CF</th><th>Loan balance</th><th>Equity</th>
+    </tr></thead>
+    <tbody id="proj_body"></tbody>
+  </table>
+</div>
+
+<script>
+const CALC = {{ calc_data|safe }};
+const $ = id => document.getElementById(id);
+const numv = id => parseFloat($(id).value) || 0;
+const fmtUSD = v => isFinite(v) ? '$' + Math.round(v).toLocaleString() : '—';
+const fmtPct = v => isFinite(v) ? v.toFixed(2) + '%' : '—';
+
+function pmt(r, n, principal){ return r === 0 ? principal/n : principal*r/(1 - Math.pow(1+r, -n)); }
+function balanceAfter(principal, r, n, m){
+  if (m >= n) return 0;
+  if (r === 0) return principal*(1 - m/n);
+  const p = pmt(r, n, principal), f = Math.pow(1+r, m);
+  return principal*f - p*(f-1)/r;
+}
+function inputs(){
+  return { price:numv('c_price'), rent:numv('c_rent'), dp:numv('c_dp')/100,
+    rate:numv('c_rate')/100, term:numv('c_term'), closing:numv('c_closing')/100,
+    tax:numv('c_tax')/100, ins:numv('c_ins')/100, vac:numv('c_vac')/100,
+    mgmt:numv('c_mgmt')/100, maint:numv('c_maint')/100,
+    growth:numv('c_growth')/100, appr:numv('c_appr')/100 };
+}
+// Net operating income at a given price (excludes debt service). Tax & insurance
+// scale with value; management with collected rent; maintenance with gross rent.
+function noiAt(I, price, value){
+  const grossRent = I.rent*12, egi = grossRent*(1-I.vac);
+  return egi - value*I.tax - value*I.ins - egi*I.mgmt - grossRent*I.maint;
+}
+function compute(){
+  const I = inputs();
+  const loan = I.price*(1-I.dp), mr = I.rate/12, n = I.term*12;
+  const monthlyPI = pmt(mr, n, loan);
+  const noi = noiAt(I, I.price, I.price);
+  const annualDebt = monthlyPI*12;
+  const annualCF = noi - annualDebt;
+  const cap = I.price > 0 ? noi/I.price : NaN;          // guard divide-by-zero
+  const cashIn = I.price*(I.dp + I.closing);
+  const coc = cashIn > 0 ? annualCF/cashIn : NaN;       // guard divide-by-zero
+
+  $('o_pi').textContent = fmtUSD(monthlyPI);
+  $('o_noi').textContent = fmtUSD(noi);
+  $('o_cf').textContent = fmtUSD(annualCF/12);
+  $('o_cfyr').textContent = fmtUSD(annualCF);
+  $('o_cap').textContent = fmtPct(cap*100);
+  $('o_coc').textContent = fmtPct(coc*100);
+  $('o_cashin').textContent = fmtUSD(cashIn);
+  $('o_cf').className = 'val ' + (isFinite(annualCF) ? (annualCF >= 0 ? 'pos' : 'neg') : '');
+  $('o_coc').className = 'val ' + (isFinite(coc) ? (coc >= 0 ? 'pos' : 'neg') : '');
+
+  let rows = '', cum = 0;
+  const mr2 = I.rate/12, n2 = I.term*12, loan2 = I.price*(1-I.dp);
+  const annualDebtFixed = pmt(mr2, n2, loan2)*12;
+  for (let y = 1; y <= 20; y++){
+    const rentMo = I.rent*Math.pow(1+I.growth, y-1);
+    const valStart = I.price*Math.pow(1+I.appr, y-1);
+    const valEnd = I.price*Math.pow(1+I.appr, y);
+    const grossRent = rentMo*12, egi = grossRent*(1-I.vac);
+    const noiY = egi - valStart*I.tax - valStart*I.ins - egi*I.mgmt - grossRent*I.maint;
+    const debt = (y <= I.term) ? annualDebtFixed : 0;
+    const cf = noiY - debt; cum += cf;
+    const bal = balanceAfter(loan2, mr2, n2, Math.min(y*12, n2));
+    rows += `<tr><td>${y}</td><td>${fmtUSD(rentMo)}</td><td>${fmtUSD(valEnd)}</td>`
+      + `<td>${fmtUSD(noiY)}</td><td>${fmtUSD(cf)}</td><td>${fmtUSD(cum)}</td>`
+      + `<td>${fmtUSD(bal)}</td><td>${fmtUSD(valEnd-bal)}</td></tr>`;
+  }
+  $('proj_body').innerHTML = rows;
+  reverseSolve(I);
+}
+function gapText(maxPrice, current){
+  if (!(maxPrice > 0) || !(current > 0)) return '';
+  const diff = maxPrice - current, pct = diff/current*100;
+  return `${diff>=0?'+':''}${fmtUSD(diff)} vs current ZHVI (${pct>=0?'+':''}${pct.toFixed(0)}%)`;
+}
+function cocAt(I, price){
+  const noi = noiAt(I, price, price);
+  const annualDebt = pmt(I.rate/12, I.term*12, price*(1-I.dp))*12;
+  const cashIn = price*(I.dp + I.closing);
+  return cashIn > 0 ? (noi - annualDebt)/cashIn : -Infinity;
+}
+// Robust bisection for the target cash-on-cash price. CoC is normally decreasing
+// in price, but for very low rent (numerator <= 0) it can be flat/increasing, and
+// every target has a finite achievable band — so we verify reachability and the
+// result rather than assuming, and return null when there is no real solution.
+function solveCoC(I, target){
+  const lo = 1, hi = Math.max(I.price * 5, 3_000_000);
+  const cLo = cocAt(I, lo), cHi = cocAt(I, hi);
+  if (!isFinite(cLo) || !isFinite(cHi)) return null;
+  if (target < Math.min(cLo, cHi) || target > Math.max(cLo, cHi)) return null; // unreachable
+  const decreasing = cLo >= cHi;
+  let a = lo, b = hi;
+  for (let i = 0; i < 100; i++){
+    const mid = (a + b) / 2, c = cocAt(I, mid);
+    if (decreasing ? (c > target) : (c < target)) a = mid; else b = mid;
+  }
+  const price = (a + b) / 2;
+  return Math.abs(cocAt(I, price) - target) <= 1e-4 ? price : null;  // verify
+}
+function reverseSolve(I){
+  const grossRent = I.rent*12, egi = grossRent*(1-I.vac);
+  const rentSideExp = egi*I.mgmt + grossRent*I.maint;
+  // cap = (egi - rentSideExp - price*(tax+ins)) / price  ->  closed form
+  const capT = numv('r_cap')/100, denom = capT + I.tax + I.ins;
+  const capPrice = (denom > 0 && (egi - rentSideExp) > 0) ? (egi - rentSideExp)/denom : null;
+  $('r_cap_price').textContent = capPrice ? fmtUSD(capPrice) : '—';
+  $('r_cap_gap').textContent = capPrice ? gapText(capPrice, I.price)
+    : 'no price hits this cap rate with these rents/expenses';
+  // cash-on-cash target via robust bisection
+  const cocPrice = solveCoC(I, numv('r_coc')/100);
+  $('r_coc_price').textContent = cocPrice ? fmtUSD(cocPrice) : '—';
+  $('r_coc_gap').textContent = cocPrice ? gapText(cocPrice, I.price) : 'target not reachable';
+}
+function prefill(){
+  const z = $('c_zip').value, d = CALC.zips[z] || {};
+  if (d.hv) $('c_price').value = d.hv;
+  if (d.rent){ $('c_rent').value = d.rent; $('rent_note').textContent = 'Rent pre-filled from ZORI.'; }
+  else if (d.hv){ $('c_rent').value = Math.round(d.hv*0.007); $('rent_note').textContent = 'No ZORI for this ZIP — rent is a rough 0.7% estimate; edit it.'; }
+  compute();
+}
+window.addEventListener('DOMContentLoaded', () => {
+  const sel = $('c_zip');
+  Object.keys(CALC.zips).forEach(z => {
+    const o = document.createElement('option');
+    o.value = z; o.textContent = z + ' — ' + CALC.zips[z].market; sel.appendChild(o);
+  });
+  if (CALC.mortgage) $('c_rate').value = Number(CALC.mortgage).toFixed(2);
+  document.querySelectorAll('#calc input, #calc select').forEach(el =>
+    el.addEventListener('input', () => { el.id === 'c_zip' ? prefill() : compute(); }));
+  prefill();
+});
+</script>

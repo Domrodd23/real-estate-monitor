@@ -251,6 +251,8 @@ def _county_metrics(config, raw_dir, rows):
                 ("median_sale_price", "median_sale_price", "USD"),
                 ("median_dom", "median_dom", "days"),
                 ("price_drops", "price_drop_share", "share"),
+                ("avg_sale_to_list", "sale_to_list_ratio", "ratio"),
+                ("sold_above_list", "sold_above_list_share", "share"),
             ]:
                 if col not in g.columns:
                     continue

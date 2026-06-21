@@ -6,6 +6,7 @@ opened directly from disk (offline). Also writes the flat per-ZIP CSV export.
 """
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -115,12 +116,61 @@ SNAPSHOT_SPECS = [
     ("median_sale_price", "Median sale price", usd, None),
     ("median_dom", "Days on market", days, None),
     ("price_drop_share", "Price-drop share", share, None),
+    ("sale_to_list_ratio", "Sale-to-list ratio", lambda v: f"{v*100:.1f}%" if _f(v) else None, None),
+    ("sold_above_list_share", "Sold above list", share, None),
     ("inventory", "For-sale inventory", count, None),
     ("new_listings", "New listings / mo", count, None),
 ]
 
+# Columns for the sortable cross-market comparison table.
+COMPARE_COLS = [
+    ("zip", "ZIP", "text"),
+    ("market", "Market", "text"),
+    ("home_value", "Home value", "num"),
+    ("hv12", "Value 12-mo", "num"),
+    ("rent", "Rent", "num"),
+    ("ptr", "Price-to-rent", "num"),
+    ("ov", "Overvaluation", "num"),
+    ("dom", "Days on mkt (county)", "num"),
+    ("drop", "Price cuts (county)", "num"),
+]
 
-def render_dashboard(config: Config) -> Path:
+
+def _cell(value, fmt):
+    if not _f(value):
+        return {"d": "—", "v": ""}
+    return {"d": fmt(value), "v": value}
+
+
+def build_comparison(config, pivot, other):
+    """One row per tracked ZIP across all markets; county DOM/price-cuts joined in."""
+    rows = []
+    for m in config.markets.values():
+        dom = other.get((m.key, "median_dom"))
+        drop = other.get((m.key, "price_drop_share"))
+        dom_v = dom["value"] if dom is not None else None
+        drop_v = drop["value"] if drop is not None else None
+        for z in m.zips:
+            r = pivot.loc[z] if z in pivot.index else None
+
+            def gg(metric):
+                return r[metric] if r is not None and metric in r and pd.notna(r[metric]) else None
+
+            rows.append([
+                {"d": z, "v": z},
+                {"d": m.name, "v": m.name},
+                _cell(gg("home_value"), usd),
+                _cell(gg("home_value_12m_pct"), pct),
+                _cell(gg("rent"), usd_mo),
+                _cell(gg("price_to_rent"), ratio),
+                _cell(gg("overvaluation_pr_pct"), pct),
+                _cell(dom_v, days),
+                _cell(drop_v, share),
+            ])
+    return {"headers": [{"label": l, "type": t} for _, l, t in COMPARE_COLS], "rows": rows}
+
+
+def render_dashboard(config: Config, export_links=None) -> Path:
     raw_dir = config.raw_dir
     metrics_path = config.processed_dir / "metrics.csv"
     if not metrics_path.exists():
@@ -131,6 +181,9 @@ def render_dashboard(config: Config) -> Path:
 
     pivot = _zip_pivot(df)
     other = _other_lookup(df)
+
+    fc_path = config.processed_dir / "forecasts.json"
+    forecasts = json.loads(fc_path.read_text()) if fc_path.exists() else {"zips": {}, "driver_meta": None}
 
     # Raw series for charts.
     zhvi, zhvi_dates = zillow.load_zip_series(
@@ -187,9 +240,29 @@ def render_dashboard(config: Config) -> Path:
                 ),
             })
 
+        # Forecast rows for this market
+        fc_rows = []
+        for z in m.zips:
+            f = forecasts["zips"].get(z)
+            ts = (f or {}).get("ts")
+            drv = (f or {}).get("driver")
+            ts12 = ts["horizons"].get("12") if ts else None
+            ts24 = ts["horizons"].get("24") if ts else None
+            fc_rows.append({
+                "zip": z,
+                "ts12": pct(ts12["pct"]) if ts12 else "—",
+                "band": (f"${ts12['lo']:,.0f}–${ts12['hi']:,.0f}" if ts12 else ""),
+                "mape": (f"{ts['mape']:.1f}%" if ts and ts.get("mape") is not None else "—"),
+                "drv12": pct(drv["pct"]) if drv else "—",
+                "drvmae": (f"±{drv['mae_pp']:.1f}pp" if drv else "—"),
+                "blend": (pct(f["blend"]) if f and f.get("blend") is not None else "—"),
+                "ts24": pct(ts24["pct"]) if ts24 else "—",
+                "modeled": bool(ts or drv),
+            })
+
         markets_vm.append({
             "name": m.name, "county_name": m.county.name,
-            "snapshot": snapshot, "zips": zip_rows,
+            "snapshot": snapshot, "zips": zip_rows, "forecasts": fc_rows,
         })
 
     # National + sources footer
@@ -202,11 +275,44 @@ def render_dashboard(config: Config) -> Path:
 
     env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)),
                       autoescape=select_autoescape(["html"]))
+    comparison = build_comparison(config, pivot, other)
+
+    dm = forecasts.get("driver_meta")
+    forecast_meta = None
+    if dm:
+        forecast_meta = {
+            "mae_pp": f"{dm['mae_pp']:.1f}", "dir_acc": f"{dm['dir_acc']:.0f}",
+            "n_zips": dm["n_zips"], "n_test": dm["n_test"],
+            "drivers": [(name, round(v, 3)) for name, v in dm["importances"][:6]],
+        }
+
+    # Per-ZIP data for the client-side calculator (purchase price + rent prefill).
+    calc_zips = {}
+    for m in config.markets.values():
+        for z in m.zips:
+            r = pivot.loc[z] if z in pivot.index else None
+
+            def gg(metric):
+                return r[metric] if r is not None and metric in r and pd.notna(r[metric]) else None
+
+            hv, rent = gg("home_value"), gg("rent")
+            calc_zips[z] = {
+                "hv": (round(float(hv)) if _f(hv) else None),
+                "rent": (round(float(rent)) if _f(rent) else None),
+                "market": m.name,
+            }
+    calc_data = json.dumps({
+        "zips": calc_zips,
+        "mortgage": (float(mort["value"]) if mort is not None else 7.0),
+    })
+
     html = env.get_template("dashboard.html.j2").render(
         generated=datetime.now().strftime("%Y-%m-%d %H:%M"),
         mortgage=(pct(mort["value"]).lstrip("+") if mort is not None else None),
         mortgage_asof=(mort["as_of"] if mort is not None else None),
-        markets=markets_vm, sources=sources,
+        markets=markets_vm, sources=sources, comparison=comparison,
+        calc_data=calc_data, export_links=(export_links or []),
+        forecast_meta=forecast_meta,
     )
 
     # Write outputs

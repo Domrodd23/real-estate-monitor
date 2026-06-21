@@ -14,9 +14,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
+import json  # noqa: E402
+
 from remon.config import load_config  # noqa: E402
 from remon.logging_setup import get_logger  # noqa: E402
-from remon import metrics  # noqa: E402
+from remon import forecast, metrics  # noqa: E402
 
 log = get_logger("compute")
 
@@ -29,6 +31,12 @@ def compute_all() -> None:
     dest = config.processed_dir / "metrics.csv"
     df.to_csv(dest, index=False)
     log.info("Wrote %d metric rows -> %s", len(df), dest)
+
+    # Forecasts (two backtested public-data models).
+    fc = forecast.build_forecasts(config)
+    (config.processed_dir / "forecasts.json").write_text(json.dumps(fc, indent=2))
+    log.info("Wrote forecasts -> %s (%d ZIPs)",
+             config.processed_dir / "forecasts.json", len(fc["zips"]))
 
     metrics.print_table(df)
 
