@@ -1,0 +1,165 @@
+# =============================================================================
+# config.yaml  —  the ONLY file you need to edit to change what is tracked.
+#
+# Edit ZIP codes, add/remove markets, or change the data year here.
+# You do not need to touch any Python code to retune the markets.
+# After editing, re-run:  python run.py check
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Markets to track. Each market has a list of ZIP codes and one county.
+# ZIPs are quoted strings so leading zeros are never lost.
+# -----------------------------------------------------------------------------
+markets:
+
+  toledo:
+    name: "Toledo, OH"
+    # Zillow metro name used for metro-level fallback metrics (inventory, etc.)
+    metro_name: "Toledo, OH"
+    # West + North + South Toledo (Lucas County). To also track the East/Central
+    # core, add: "43605", "43608", "43609", "43610"
+    zips:
+      - "43606"
+      - "43607"
+      - "43611"
+      - "43612"
+      - "43613"
+      - "43614"
+      - "43615"
+      - "43620"
+      - "43623"
+    county:
+      name: "Lucas County, Ohio"
+      fips: "39095"        # full 5-digit county FIPS
+      state_fips: "39"     # Ohio
+      county_fips: "095"   # Lucas
+      state_abbr: "OH"
+
+  san_francisco:
+    name: "San Francisco, CA"
+    metro_name: "San Francisco, CA"
+    # Full standard SF residential ZIP set (interpreted from "track all of SF").
+    # To narrow this, just delete the lines you don't want.
+    zips:
+      - "94102"
+      - "94103"
+      - "94105"
+      - "94107"
+      - "94108"
+      - "94109"
+      - "94110"
+      - "94112"
+      - "94114"
+      - "94115"
+      - "94116"
+      - "94117"
+      - "94118"
+      - "94121"
+      - "94122"
+      - "94123"
+      - "94124"
+      - "94127"
+      - "94131"
+      - "94132"
+      - "94133"
+      - "94134"
+      - "94158"
+    county:
+      name: "San Francisco County, CA"
+      fips: "06075"
+      state_fips: "06"     # California
+      county_fips: "075"   # San Francisco
+      state_abbr: "CA"
+
+# -----------------------------------------------------------------------------
+# Data sources.
+#
+# IMPORTANT: For Zillow and Redfin we store the *landing page*, not a direct
+# file URL, because those file URLs rotate. fetch.py reads the landing page,
+# finds the current file link, confirms it resolves, then downloads.
+# -----------------------------------------------------------------------------
+sources:
+
+  zillow:
+    # Research data landing page. Direct CSV links are discovered at fetch time.
+    data_page: "https://www.zillow.com/research/data/"
+    # Keywords used to identify the right CSV among the page's links. Matching is
+    # done on the link text / filename, never by position.
+    files:
+      zhvi_zip:
+        # ZHVI = Zillow Home Value Index, ZIP geography, all homes, smoothed SA.
+        match: ["zhvi", "zip"]
+        geography: "zip"
+      zori_zip:
+        # ZORI = Zillow Observed Rent Index, ZIP geography (starts ~2015).
+        match: ["zori", "zip"]
+        geography: "zip"
+      inventory_metro:
+        # For-sale inventory is reliable at METRO level only (ZIP not published).
+        match: ["invt_fs", "metro"]
+        geography: "metro"
+      new_listings_metro:
+        match: ["new_listings", "metro"]
+        geography: "metro"
+
+  redfin:
+    # Redfin Data Center. County/metro tables are reliable; ZIP is thin.
+    data_page: "https://www.redfin.com/news/data-center/"
+    # Redfin publishes gzipped TSVs on a stable S3-style host; fetch.py confirms
+    # the current path from the data center page before downloading.
+    files:
+      county_market_tracker:
+        match: ["county_market_tracker"]
+        geography: "county"
+
+  fred:
+    # Free API key required -> env var FRED_API_KEY. See README.
+    api_base: "https://api.stlouisfed.org/fred"
+    series:
+      mortgage30us: "MORTGAGE30US"   # 30-yr fixed mortgage rate, national, weekly
+      fhfa_ohio: "OHSTHPI"           # FHFA All-Transactions HPI, Ohio (quarterly)
+      fhfa_california: "CASTHPI"     # FHFA All-Transactions HPI, California
+      # Optional metro-level FHFA series (quarterly):
+      fhfa_toledo_msa: "ATNHPIUS45780Q"
+      fhfa_sf_msa: "ATNHPIUS41884Q"
+
+  census:
+    # Free API key required -> env var CENSUS_API_KEY. See README.
+    api_base: "https://api.census.gov/data"
+    acs_dataset: "acs/acs5"          # ACS 5-year estimates (county-level reliable)
+    acs_year: 2023                   # most recent 5-yr release; bump when newer drops
+    variables:
+      median_household_income: "B19013_001E"
+      population: "B01003_001E"
+    # County-to-county migration flows are a SEPARATE ACS dataset, county-level
+    # only, annual, released with a lag. Handled in fetch.py / compute.py.
+    # NOTE: only the 5-year flows (2016-2020, API year 2020) carry full
+    # county-to-county detail with net flow (MOVEDNET). Newer single years
+    # (2021/2022) return state-aggregated inflows only — no net. So we use 2020.
+    migration:
+      dataset: "acs/flows"
+      year: 2020
+
+# -----------------------------------------------------------------------------
+# Caching: raw downloads are saved date-stamped so a failed compute step never
+# forces a re-download. A cached file newer than max_age_days is reused.
+# -----------------------------------------------------------------------------
+cache:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  max_age_days: 35        # monthly cadence; reuse anything fresher than this
+
+# -----------------------------------------------------------------------------
+# Output: GitHub Pages serves from /docs, so the dashboard is written there.
+# -----------------------------------------------------------------------------
+output:
+  docs_dir: "docs"
+  csv_export: "docs/metrics_latest.csv"
+
+# -----------------------------------------------------------------------------
+# Analysis settings.
+# -----------------------------------------------------------------------------
+analysis:
+  overvaluation_history_years: 5   # window for the price-to-rent / -income proxy
+  forecast_horizons_months: [12, 24]
+  forecast_backtest_months: 12     # held-out window for MAPE

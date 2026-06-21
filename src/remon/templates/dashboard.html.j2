@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Real estate monitor</title>
+<script src="assets/plotly.min.js"></script>
+<style>
+  :root { --line:#d9dee3; --muted:#5b6670; --pos:#0a7d2c; --neg:#b4232a; --bg-alt:#f6f8fa; }
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+         color:#1b1f23; margin:0; line-height:1.45; }
+  .wrap { max-width:1100px; margin:0 auto; padding:24px 18px 60px; }
+  h1 { font-size:1.7rem; margin:0 0 4px; }
+  h2 { font-size:1.3rem; margin:38px 0 6px; padding-top:14px; border-top:2px solid var(--line); }
+  h3 { font-size:1.02rem; margin:22px 0 8px; color:#222; }
+  .sub { color:var(--muted); font-size:.9rem; margin:0 0 4px; }
+  table { border-collapse:collapse; width:100%; font-size:.88rem; margin:6px 0 4px; }
+  th, td { text-align:right; padding:6px 9px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th:first-child, td:first-child { text-align:left; }
+  thead th { border-bottom:2px solid var(--line); font-weight:600; }
+  tbody tr:nth-child(even) { background:var(--bg-alt); }
+  .pos { color:var(--pos); }
+  .neg { color:var(--neg); }
+  .na  { color:#9aa4ad; }
+  .disclaimer { background:#fff8e6; border:1px solid #f0d98c; border-radius:6px;
+                padding:10px 13px; font-size:.85rem; color:#5b4a00; margin:10px 0 4px; }
+  .snapshot { display:flex; flex-wrap:wrap; gap:10px; margin:8px 0; }
+  .stat { border:1px solid var(--line); border-radius:6px; padding:8px 12px; min-width:150px; }
+  .stat .lbl { color:var(--muted); font-size:.74rem; text-transform:uppercase; letter-spacing:.02em; }
+  .stat .val { font-size:1.05rem; font-weight:600; }
+  .stat .src { color:var(--muted); font-size:.7rem; }
+  .chart { border:1px solid var(--line); border-radius:6px; padding:6px; margin:10px 0; }
+  .footer { margin-top:40px; padding-top:14px; border-top:2px solid var(--line);
+            font-size:.82rem; color:var(--muted); }
+  .footer td, .footer th { font-size:.82rem; }
+  .pill { display:inline-block; font-size:.7rem; padding:1px 7px; border-radius:10px;
+          background:#eef1f4; color:var(--muted); margin-left:6px; }
+  .stale { background:#fdecec; color:var(--neg); }
+  code { background:var(--bg-alt); padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Real estate monitor</h1>
+  <p class="sub">Public-data market dashboard — generated {{ generated }}.
+     30-year fixed mortgage rate: <strong>{{ mortgage or "n/a" }}</strong>
+     {% if mortgage_asof %}<span class="pill">FRED, {{ mortgage_asof }}</span>{% endif %}</p>
+
+  <div class="disclaimer">
+    Built only from primary public sources (Zillow, Redfin, FRED, Census). The
+    <strong>overvaluation proxy</strong> is a directional indicator — a ZIP's current
+    price-to-rent versus its own 5-year median — <strong>not a forecast or prediction</strong>,
+    and not any paid service's score. Metrics are labeled with their true geography
+    (ZIP, metro, or county) and source date; blanks mean the free data does not
+    support that metric for that area.
+  </div>
+
+  {% for m in markets %}
+  <h2>{{ m.name }}</h2>
+
+  <h3>County snapshot — {{ m.county_name }}</h3>
+  <div class="snapshot">
+    {% for s in m.snapshot %}
+    <div class="stat">
+      <div class="lbl">{{ s.label }}</div>
+      <div class="val {{ s.cls }}">{{ s.value }}</div>
+      <div class="src">{{ s.source }} · {{ s.as_of }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <h3>Market metrics by ZIP</h3>
+  <table>
+    <thead><tr>
+      <th>ZIP</th><th>Home value</th><th>12-mo</th><th>Rent</th><th>12-mo</th>
+      <th>Price-to-rent</th><th>Overvaluation proxy</th>
+    </tr></thead>
+    <tbody>
+    {% for z in m.zips %}
+      <tr>
+        <td>{{ z.zip }}</td>
+        <td>{{ z.home_value }}</td>
+        <td class="{{ z.hv_cls }}">{{ z.home_value_12m }}</td>
+        <td>{{ z.rent }}</td>
+        <td class="{{ z.rent_cls }}">{{ z.rent_12m }}</td>
+        <td>{{ z.price_to_rent }}</td>
+        <td class="{{ z.ov_cls }}">{{ z.overvaluation }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="sub">Home value & 12-mo change: Zillow ZHVI · Rent & 12-mo change: Zillow ZORI ·
+     Price-to-rent & overvaluation proxy: derived from ZHVI + ZORI. A blank means
+     no rent data for that ZIP or too little history for a reliable proxy.</p>
+
+  <h3>Home value and rent over time</h3>
+  {% for z in m.zips %}
+    {% if z.chart %}
+    <div class="chart">{{ z.chart | safe }}</div>
+    {% endif %}
+  {% endfor %}
+
+  {% endfor %}
+
+  <div class="footer">
+    <h3>Sources and last refresh</h3>
+    <table>
+      <thead><tr><th>Source</th><th>Most recent data</th><th>Status</th></tr></thead>
+      <tbody>
+      {% for s in sources %}
+        <tr><td>{{ s.source }}</td><td>{{ s.as_of }}</td>
+            <td>{% if s.stale %}<span class="pill stale">stale</span>{% else %}current{% endif %}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <p>Flat CSV export of the latest per-ZIP metrics: <code>metrics_latest.csv</code>
+       (in this folder). Page generated {{ generated }}.</p>
+  </div>
+
+</div>
+</body>
+</html>
