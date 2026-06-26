@@ -66,9 +66,12 @@
 <script>
 const GEOJSON = {{ geojson_json | safe }};
 const METRICS = {{ metrics_json | safe }};
+const ZIP_STATES = {{ zip_states_json | safe }};   // [{code,file,count}] — drill-down layers
 const byKey = {}; METRICS.forEach(m => byKey[m.key] = m);
 let currentKey = METRICS[0].key;
 let fallbackActive = false;
+let firstSymbolId = null;            // basemap label layer to insert fills beneath
+const zipLoaded = {};                // state code -> true once its ZIP layer is added
 
 function fmt(kind, v){
   if(v === null || v === undefined || v === '' || isNaN(v)) return 'n/a';
@@ -94,23 +97,18 @@ setLegend(currentKey);
 
 // ---------- Preferred: smooth MapLibre tile map ----------
 let map = null, added = false;
-const POSITRON = {
-  version: 8,
-  sources: { carto: { type: 'raster', tileSize: 256,
-    tiles: ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-            'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-            'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],
-    attribution: '© CARTO © OpenStreetMap contributors' } },
-  layers: [{ id: 'carto-base', type: 'raster', source: 'carto' }]
-};
 function addCounties(){
   if(added || !map.isStyleLoaded()) return;
   try {
-    map.addSource('counties', { type: 'geojson', data: GEOJSON });
+    // Insert the choropleth BELOW the basemap's first label layer, so city
+    // names stay crisp on top — the polished look, and smooth on vector tiles.
+    for(const l of map.getStyle().layers){ if(l.type === 'symbol'){ firstSymbolId = l.id; break; } }
+    // tolerance simplifies the geometry MapLibre rasterizes → lighter, smoother.
+    map.addSource('counties', { type: 'geojson', data: GEOJSON, tolerance: 0.7 });
     map.addLayer({ id: 'counties-fill', type: 'fill', source: 'counties',
-      paint: { 'fill-color': byKey[currentKey].expr, 'fill-opacity': 0.9 } });
+      paint: { 'fill-color': byKey[currentKey].expr, 'fill-opacity': 0.82 } }, firstSymbolId);
     map.addLayer({ id: 'counties-line', type: 'line', source: 'counties',
-      paint: { 'line-color': 'rgba(120,130,140,0.3)', 'line-width': 0.3 } });
+      paint: { 'line-color': 'rgba(90,100,110,0.28)', 'line-width': 0.3 } }, firstSymbolId);
     map.addLayer({ id: 'tracked-line', type: 'line', source: 'counties',
       filter: ['==', ['get', 'tracked'], true],
       paint: { 'line-color': '#111', 'line-width': 2 } });
@@ -125,20 +123,54 @@ function addCounties(){
     map.on('mouseleave', 'counties-fill', () => { map.getCanvas().style.cursor = ''; popup.remove(); });
   } catch(e){ /* retry on a later event */ }
 }
+
+// ---------- Drill-down: load ZIP layers for tracked states once zoomed in ----------
+const ZIP_MINZOOM = 6;
+function maybeLoadZips(){
+  if(!added || fallbackActive || map.getZoom() < ZIP_MINZOOM) return;
+  for(const st of ZIP_STATES){ if(!zipLoaded[st.code]) loadZipState(st); }
+}
+function loadZipState(st){
+  zipLoaded[st.code] = true;
+  fetch(st.file).then(r => r.json()).then(gj => addZipLayer(st.code, gj))
+    .catch(() => { zipLoaded[st.code] = false; });
+}
+function addZipLayer(code, gj){
+  const src = 'zips_' + code, fillId = src + '_fill';
+  if(map.getSource(src)) return;
+  map.addSource(src, { type: 'geojson', data: gj, tolerance: 0.3 });
+  map.addLayer({ id: fillId, type: 'fill', source: src, minzoom: ZIP_MINZOOM,
+    paint: { 'fill-color': byKey[currentKey].expr, 'fill-opacity': 0.88 } }, firstSymbolId);
+  map.addLayer({ id: src + '_line', type: 'line', source: src, minzoom: ZIP_MINZOOM,
+    paint: { 'line-color': 'rgba(70,80,90,0.45)', 'line-width': 0.5 } }, firstSymbolId);
+  const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
+  map.on('mousemove', fillId, e => {
+    map.getCanvas().style.cursor = 'pointer';
+    const p = e.features[0].properties;
+    popup.setLngLat(e.lngLat).setHTML('<strong>' + (p.cname || 'ZIP') + '</strong><br>' +
+      byKey[currentKey].label + ': ' + fmt(byKey[currentKey].fmt, p[currentKey])).addTo(map);
+  });
+  map.on('mouseleave', fillId, () => { map.getCanvas().style.cursor = ''; popup.remove(); });
+}
+
 try {
-  map = new maplibregl.Map({ container: 'map', style: POSITRON,
-    center: [-96, 38.6], zoom: 3.2, maxZoom: 12, minZoom: 2 });
+  map = new maplibregl.Map({
+    container: 'map',
+    // Vector basemap (smooth, crisp at any zoom). Falls back to plotly if it can't load.
+    style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+    center: [-96, 38.6], zoom: 3.2, maxZoom: 13, minZoom: 2, dragRotate: false });
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
   map.on('load', addCounties);
   map.on('styledata', addCounties);
-  map.on('idle', addCounties);
+  map.on('idle', () => { addCounties(); maybeLoadZips(); });
+  map.on('moveend', maybeLoadZips);
   // If the tile map hasn't painted counties in time, fall back to the reliable engine.
   setTimeout(() => {
     let ok = false;
     try { ok = added && map.getLayer('counties-fill') &&
                map.queryRenderedFeatures({ layers: ['counties-fill'] }).length > 0; } catch(e){}
     if(!ok) showFallback();
-  }, 6000);
+  }, 9000);
 } catch(e){ showFallback(); }
 
 // ---------- Fallback: reliable plotly geo choropleth ----------
@@ -183,9 +215,13 @@ function setMetric(btn){
   btn.classList.add('active');
   currentKey = btn.dataset.key;
   setLegend(currentKey);
-  if(fallbackActive){ renderPlotly(currentKey); }
-  else if(map && map.getLayer && map.getLayer('counties-fill')){
+  if(fallbackActive){ renderPlotly(currentKey); return; }
+  if(map && map.getLayer && map.getLayer('counties-fill')){
     map.setPaintProperty('counties-fill', 'fill-color', byKey[currentKey].expr);
+    for(const st of ZIP_STATES){
+      const id = 'zips_' + st.code + '_fill';
+      if(map.getLayer(id)) map.setPaintProperty(id, 'fill-color', byKey[currentKey].expr);
+    }
   }
 }
 </script>

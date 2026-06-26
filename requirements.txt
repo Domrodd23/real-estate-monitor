@@ -14,6 +14,7 @@ PyYAML>=6.0
 python-dotenv>=1.0
 jinja2>=3.1
 plotly>=5.24        # need go.Choroplethmap (MapLibre tile basemap, no token)
+shapely>=2.0        # simplify ZIP boundary polygons for the drill-down map layers
 
 # --- Phase 9: exports (PDF + Excel) ------------------------------------------
 openpyxl>=3.1          # Excel (.xlsx) export

@@ -182,9 +182,113 @@ def _metric_render(df: pd.DataFrame, m: dict) -> dict:
             "expr": expr, "edges": edges, "colors": used, "legend": legend}
 
 
+# ZIP-level drill-down boundaries (OpenDataDE), per state the user tracks.
+ZIP_GEOJSON_BASE = "https://raw.githubusercontent.com/OpenDataDE/State-zip-code-GeoJSON/master/"
+STATE_ZIP_FILES = {
+    "OH": "oh_ohio_zip_codes_geo.min.json",
+    "CA": "ca_california_zip_codes_geo.min.json",
+    "MI": "mi_michigan_zip_codes_geo.min.json",
+    "TX": "tx_texas_zip_codes_geo.min.json",
+    "FL": "fl_florida_zip_codes_geo.min.json",
+    "NY": "ny_new_york_zip_codes_geo.min.json",
+}
+ZIP_SIMPLIFY_TOLERANCE = 0.003  # ~300 m; shapes stay recognizable, file stays small
+ZIP_METRIC_KEYS = ["home_value", "home_value_12m_pct", "rent", "price_to_rent"]
+
+
+def _zip_values(config: Config, zips):
+    """Latest home value (+12-mo), rent, price-to-rent per ZIP from the national files."""
+    from . import metrics
+    raw = config.raw_dir
+    out, zhvi, zd, zori, zod = {}, None, None, None, None
+    zpath = last_cached(raw, "zillow_zhvi_zip", "csv")
+    if zpath:
+        zhvi, zd = zillow.load_zip_series(zpath, zips, "Zillow ZHVI zip")
+        zhvi = zhvi.set_index("RegionName"); zhvi = zhvi[~zhvi.index.duplicated()]
+        for z in zhvi.index:
+            res = metrics.latest_and_yoy(zhvi.loc[z], zd)
+            if res:
+                _, val, yoy = res
+                out.setdefault(z, {})["home_value"] = round(val)
+                if yoy is not None:
+                    out[z]["home_value_12m_pct"] = round(yoy, 1)
+    rpath = last_cached(raw, "zillow_zori_zip", "csv")
+    if rpath:
+        zori, zod = zillow.load_zip_series(rpath, zips, "Zillow ZORI zip")
+        zori = zori.set_index("RegionName"); zori = zori[~zori.index.duplicated()]
+        for z in zori.index:
+            res = metrics.latest_and_yoy(zori.loc[z], zod)
+            if res:
+                out.setdefault(z, {})["rent"] = round(res[1])
+        if zhvi is not None:
+            for z in list(out):
+                if z in zhvi.index and z in zori.index:
+                    pr = metrics.monthly_price_to_rent(zhvi.loc[z], zori.loc[z], zd, zod)
+                    if len(pr) >= 24:
+                        out[z]["price_to_rent"] = round(float(pr.iloc[-1]), 1)
+    return out
+
+
+def build_zip_layer(config: Config, state_abbr: str):
+    """Fetch + simplify a state's ZIP boundaries, merge values, write docs/zips_xx.json."""
+    try:
+        from shapely.geometry import mapping, shape
+    except ImportError:
+        log.warning("[map] shapely not installed — ZIP drill-down skipped")
+        return None
+    fname = STATE_ZIP_FILES.get(state_abbr.upper())
+    if not fname:
+        log.warning("[map] no ZIP boundary source mapped for state %s — skipping", state_abbr)
+        return None
+
+    raw = config.raw_dir
+    cache_name = f"zips_raw_{state_abbr.lower()}"
+    path = last_cached(raw, cache_name, "json")
+    if not path:
+        log.info("[map] downloading %s ZIP boundaries (one-time, large)", state_abbr)
+        path = cache_path(raw, cache_name, "json")
+        path.write_text(get_text(ZIP_GEOJSON_BASE + fname), encoding="utf-8")
+    g = json.loads(path.read_text(encoding="utf-8"))
+
+    zips = [f["properties"]["ZCTA5CE10"] for f in g["features"]]
+    values = _zip_values(config, zips)
+
+    feats = []
+    for f in g["features"]:
+        z = f["properties"]["ZCTA5CE10"]
+        geom = shape(f["geometry"]).simplify(ZIP_SIMPLIFY_TOLERANCE, preserve_topology=True)
+        if geom.is_empty:
+            continue
+        props = {"cname": "ZIP " + z}
+        for k in ZIP_METRIC_KEYS:
+            if values.get(z, {}).get(k) is not None:
+                props[k] = values[z][k]
+        feats.append({"type": "Feature", "id": z, "properties": props, "geometry": mapping(geom)})
+
+    dest = config.docs_dir / f"zips_{state_abbr.lower()}.json"
+    dest.write_text(json.dumps({"type": "FeatureCollection", "features": feats},
+                               separators=(",", ":")), encoding="utf-8")
+    log.info("[map] wrote %s (%d ZIPs, %.1f MB)", dest.name, len(feats), dest.stat().st_size / 1e6)
+    return {"code": state_abbr.lower(), "file": dest.name, "count": len(feats)}
+
+
 def render_map_page(config: Config) -> Path:
     df = build_county_table(config)
     geojson = _load_geojson(config)
+
+    # Build ZIP drill-down layers for each state the user tracks.
+    zip_states, seen = [], set()
+    for mk in config.markets.values():
+        code = mk.county.state_abbr.upper()
+        if code in seen:
+            continue
+        seen.add(code)
+        try:
+            info = build_zip_layer(config, code)
+            if info:
+                zip_states.append(info)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[map] ZIP layer for %s failed: %s", code, exc)
 
     tracked_fips = {mk.county.fips for mk in config.markets.values()}
     name_by_fips = df["name"].to_dict()
@@ -217,6 +321,7 @@ def render_map_page(config: Config) -> Path:
         metrics=[{"key": m["key"], "label": m["label"]} for m in METRICS],
         geojson_json=json.dumps(geojson, separators=(",", ":")),
         metrics_json=json.dumps(metrics_cfg, separators=(",", ":")),
+        zip_states_json=json.dumps(zip_states, separators=(",", ":")),
     )
     dest = config.docs_dir / "map.html"
     dest.write_text(html, encoding="utf-8")
