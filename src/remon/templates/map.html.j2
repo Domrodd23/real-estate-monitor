@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>National county map — real estate monitor</title>
-<script src="assets/plotly.min.js"></script>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <style>
   :root { --accent:#1f6feb; --ink:#1b1f23; --muted:#5b6670; --line:#e3e7eb; }
   * { box-sizing:border-box; }
@@ -15,16 +16,20 @@
   .topbar a { color:var(--accent); text-decoration:none; font-size:.9rem; }
   .topbar a:hover { text-decoration:underline; }
   .topbar .gen { color:var(--muted); font-size:.8rem; margin-left:auto; }
-  .pillbar { display:flex; gap:8px; flex-wrap:wrap; padding:10px 22px 8px; }
+  .pillbar { display:flex; gap:8px; flex-wrap:wrap; padding:10px 22px 6px; }
   .pill { border:1px solid var(--line); background:#f6f8fa; color:#33404d; border-radius:999px;
           padding:7px 15px; font-size:.85rem; font-weight:500; cursor:pointer;
           transition:background .15s, color .15s, border-color .15s, box-shadow .15s; }
   .pill:hover { border-color:var(--accent); color:var(--accent); }
   .pill.active { background:var(--accent); border-color:var(--accent); color:#fff;
                  box-shadow:0 1px 5px rgba(31,111,235,.35); }
+  .legend { display:flex; align-items:center; gap:8px; padding:2px 22px 8px; font-size:.78rem; color:var(--muted); }
+  .legend .lt { font-weight:600; color:#33404d; }
+  .legend .lbar { width:220px; height:11px; border-radius:3px; border:1px solid #ccc; display:inline-block; }
   .mapwrap { padding:0 22px; }
-  #usmap { border:1px solid var(--line); border-radius:10px; overflow:hidden;
-           box-shadow:0 1px 6px rgba(0,0,0,.05); }
+  #map, #usmap { width:100%; height:74vh; min-height:460px; border:1px solid var(--line);
+         border-radius:10px; box-shadow:0 1px 6px rgba(0,0,0,.05); }
+  .maplibregl-popup-content { font-size:12.5px; padding:8px 11px; border-radius:7px; }
   .note { color:var(--muted); font-size:.82rem; padding:12px 22px 34px; max-width:1000px; line-height:1.5; }
 </style>
 </head>
@@ -41,28 +46,140 @@
             onclick="setMetric(this)">{{ m.label }}</button>
     {% endfor %}
   </div>
+  <div class="legend" id="legend"></div>
 
-  <div class="mapwrap">{{ chart | safe }}</div>
+  <div class="mapwrap">
+    <div id="map"></div>
+    <div id="usmap" style="display:none;"></div>
+  </div>
 
   <p class="note">
-    Every US county, color-coded by the metric you pick above. Hover a county for
-    its value; drag to pan. Your markets (<strong>{{ tracked | join(', ') }}</strong>)
-    are outlined in black. Gray counties have no public value for the selected
-    metric. Coverage: home value {{ coverage.home_value }}/{{ coverage.total }} counties,
-    rent {{ coverage.rent }}, income {{ coverage.income }}. Sources: Zillow ZHVI/ZORI
-    (county) + Census ACS 5-year. Public data, not a forecast.
+    Drag to pan, scroll to zoom, hover any county for its value. Your markets
+    (<strong>{{ tracked | join(', ') }}</strong>) are outlined in black. Gray counties
+    have no public value for the selected metric. Coverage: home value
+    {{ coverage.home_value }}/{{ coverage.total }} counties, rent {{ coverage.rent }},
+    income {{ coverage.income }}. Sources: Zillow ZHVI/ZORI (county) + Census ACS 5-year.
+    Public data, not a forecast.
   </p>
 
 <script>
-const METRICS = {{ metric_data_json | safe }};
+const GEOJSON = {{ geojson_json | safe }};
+const METRICS = {{ metrics_json | safe }};
+const byKey = {}; METRICS.forEach(m => byKey[m.key] = m);
+let currentKey = METRICS[0].key;
+let fallbackActive = false;
+
+function fmt(kind, v){
+  if(v === null || v === undefined || v === '' || isNaN(v)) return 'n/a';
+  v = Number(v);
+  if(kind === 'usd') return '$' + Math.round(v).toLocaleString();
+  if(kind === 'usd_mo') return '$' + Math.round(v).toLocaleString() + '/mo';
+  if(kind === 'pct') return (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+  if(kind === 'ratio') return v.toFixed(1) + 'x';
+  if(kind === 'count') return Math.round(v).toLocaleString();
+  return '' + v;
+}
+function setLegend(key){
+  const m = byKey[key];
+  document.getElementById('legend').innerHTML =
+    '<span class="lt">' + m.label + '</span><span>' + m.legend.lo + '</span>' +
+    '<span class="lbar" style="background:linear-gradient(to right,' + m.legend.colors.join(',') + ')"></span>' +
+    '<span>' + m.legend.hi + '</span>';
+}
+setLegend(currentKey);
+
+// ---------- Preferred: smooth MapLibre tile map ----------
+let map = null, added = false;
+const POSITRON = {
+  version: 8,
+  sources: { carto: { type: 'raster', tileSize: 256,
+    tiles: ['https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+            'https://b.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
+            'https://c.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png'],
+    attribution: '© CARTO © OpenStreetMap contributors' } },
+  layers: [{ id: 'carto-base', type: 'raster', source: 'carto' }]
+};
+function addCounties(){
+  if(added || !map.isStyleLoaded()) return;
+  try {
+    map.addSource('counties', { type: 'geojson', data: GEOJSON });
+    map.addLayer({ id: 'counties-fill', type: 'fill', source: 'counties',
+      paint: { 'fill-color': byKey[currentKey].expr, 'fill-opacity': 0.82 } });
+    map.addLayer({ id: 'counties-line', type: 'line', source: 'counties',
+      paint: { 'line-color': 'rgba(120,130,140,0.3)', 'line-width': 0.3 } });
+    map.addLayer({ id: 'tracked-line', type: 'line', source: 'counties',
+      filter: ['==', ['get', 'tracked'], true],
+      paint: { 'line-color': '#111', 'line-width': 2 } });
+    added = true;
+    const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
+    map.on('mousemove', 'counties-fill', e => {
+      map.getCanvas().style.cursor = 'pointer';
+      const p = e.features[0].properties;
+      popup.setLngLat(e.lngLat).setHTML('<strong>' + (p.cname || 'County') + '</strong><br>' +
+        byKey[currentKey].label + ': ' + fmt(byKey[currentKey].fmt, p[currentKey])).addTo(map);
+    });
+    map.on('mouseleave', 'counties-fill', () => { map.getCanvas().style.cursor = ''; popup.remove(); });
+  } catch(e){ /* retry on a later event */ }
+}
+try {
+  map = new maplibregl.Map({ container: 'map', style: POSITRON,
+    center: [-96, 38.6], zoom: 3.2, maxZoom: 12, minZoom: 2 });
+  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+  map.on('load', addCounties);
+  map.on('styledata', addCounties);
+  map.on('idle', addCounties);
+  // If the tile map hasn't painted counties in time, fall back to the reliable engine.
+  setTimeout(() => {
+    let ok = false;
+    try { ok = added && map.getLayer('counties-fill') &&
+               map.queryRenderedFeatures({ layers: ['counties-fill'] }).length > 0; } catch(e){}
+    if(!ok) showFallback();
+  }, 6000);
+} catch(e){ showFallback(); }
+
+// ---------- Fallback: reliable plotly geo choropleth ----------
+function showFallback(){
+  if(fallbackActive) return;
+  fallbackActive = true;
+  try { if(map) map.remove(); } catch(e){}
+  document.getElementById('map').style.display = 'none';
+  document.getElementById('usmap').style.display = 'block';
+  if(typeof Plotly !== 'undefined') renderPlotly(currentKey);
+  else { const s = document.createElement('script'); s.src = 'assets/plotly.min.js';
+         s.onload = () => renderPlotly(currentKey); document.body.appendChild(s); }
+}
+function renderPlotly(key){
+  const m = byKey[key], locs = [], z = [], text = [], tl = [], tz = [], tt = [];
+  for(const f of GEOJSON.features){
+    const v = (f.properties[key] === undefined) ? null : f.properties[key];
+    locs.push(f.id); z.push(v);
+    text.push((f.properties.cname || '') + '<br>' + m.label + ': ' + fmt(m.fmt, v));
+    if(f.properties.tracked){ tl.push(f.id); tz.push(0); tt.push(f.properties.cname || ''); }
+  }
+  Plotly.newPlot('usmap', [
+    { type:'choropleth', geojson:GEOJSON, locations:locs, featureidkey:'id', z, text,
+      hovertemplate:'%{text}<extra></extra>', colorscale:m.colorscale, zmin:m.zmin, zmax:m.zmax,
+      marker:{ line:{ width:0.12, color:'rgba(255,255,255,0.6)' } },
+      colorbar:{ title:{ text:m.label, side:'right' }, thickness:13, len:0.9 } },
+    { type:'choropleth', geojson:GEOJSON, locations:tl, featureidkey:'id', z:tz, showscale:false,
+      colorscale:[[0,'rgba(0,0,0,0)'],[1,'rgba(0,0,0,0)']], marker:{ line:{ color:'#111', width:1.6 } },
+      hovertext:tt, hoverinfo:'text' }
+  ], { geo:{ scope:'usa', showlakes:true, lakecolor:'#eef3f6', landcolor:'#f6f7f5',
+        bgcolor:'rgba(0,0,0,0)', showcountries:false, framewidth:0 },
+      margin:{ l:6, r:6, t:6, b:6 }, height:720,
+      hoverlabel:{ bgcolor:'white', bordercolor:'#d0d5da' } },
+    { displayModeBar:false, responsive:true });
+}
+
 function setMetric(btn){
   document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
   btn.classList.add('active');
-  const m = METRICS[btn.dataset.key];
-  Plotly.restyle('usmap', {
-    z: [m.z], text: [m.text], zmin: m.zmin, zmax: m.zmax,
-    colorscale: [m.colorscale], 'colorbar.title.text': m.label
-  }, [0]);
+  currentKey = btn.dataset.key;
+  setLegend(currentKey);
+  if(fallbackActive){ renderPlotly(currentKey); }
+  else if(map && map.getLayer && map.getLayer('counties-fill')){
+    map.setPaintProperty('counties-fill', 'fill-color', byKey[currentKey].expr);
+  }
 }
 </script>
 </body>

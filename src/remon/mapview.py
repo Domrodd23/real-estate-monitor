@@ -137,50 +137,65 @@ def _prep(df: pd.DataFrame, m: Dict):
     return z, text, zmin, zmax, m["scale"]
 
 
+# Color ramps shared by the MapLibre tile map and the plotly fallback.
+SEQ_COLORS = ["#440154", "#414487", "#2a788e", "#22a884", "#7ad151", "#fde725"]
+DIV_COLORS = ["#b2182b", "#ef8a62", "#fddbc7", "#f7f7f7", "#d9f0d3", "#7fbf7b", "#1b7837"]
+
+
+def _linspace(lo, hi, n):
+    if n <= 1 or hi == lo:
+        return [lo for _ in range(n)]
+    step = (hi - lo) / (n - 1)
+    return [lo + step * i for i in range(n)]
+
+
+def _metric_render(df: pd.DataFrame, m: dict) -> dict:
+    """MapLibre fill expression + plotly colorscale + range + legend for a metric."""
+    vals = pd.to_numeric(df[m["key"]], errors="coerce").dropna()
+    if m.get("diverging"):
+        mx = (float(vals.abs().quantile(0.95)) if len(vals) else 1.0) or 1.0
+        colors, zmin, zmax = DIV_COLORS, -mx, mx
+    else:
+        lo = float(vals.quantile(0.05)) if len(vals) else 0.0
+        hi = float(vals.quantile(0.95)) if len(vals) else 1.0
+        if hi <= lo:
+            hi = lo + 1.0
+        colors, zmin, zmax = SEQ_COLORS, lo, hi
+    breaks = _linspace(zmin, zmax, len(colors))
+    interp = ["interpolate", ["linear"], ["get", m["key"]]]
+    for b, c in zip(breaks, colors):
+        interp += [b, c]
+    n = len(colors)
+    return {
+        "key": m["key"], "label": m["label"], "fmt": m["fmt"],
+        "expr": ["case", ["has", m["key"]], interp, "#e8e8e8"],            # MapLibre
+        "colorscale": [[i / (n - 1), c] for i, c in enumerate(colors)],     # plotly fallback
+        "zmin": zmin, "zmax": zmax,
+        "legend": {"colors": colors, "lo": _fmt(m["fmt"], zmin), "hi": _fmt(m["fmt"], zmax)},
+    }
+
+
 def render_map_page(config: Config) -> Path:
     df = build_county_table(config)
     geojson = _load_geojson(config)
-    fips = df.index.tolist()
 
-    # Per-metric data for the pill control bar (client-side switch via restyle).
-    metric_data = {}
-    for m in METRICS:
-        z, text, zmin, zmax, scale = _prep(df, m)
-        metric_data[m["key"]] = {"z": z, "text": text, "zmin": zmin, "zmax": zmax,
-                                 "colorscale": _scale_array(scale), "label": m["label"]}
-    first = METRICS[0]
-    d0 = metric_data[first["key"]]
+    tracked_fips = {mk.county.fips for mk in config.markets.values()}
+    name_by_fips = df["name"].to_dict()
+    keys = [m["key"] for m in METRICS]
+    # Merge per-county values + name into each feature's properties (both the
+    # MapLibre tile map and the plotly fallback read straight from these).
+    for feat in geojson.get("features", []):
+        fips = feat.get("id")
+        props = {"cname": name_by_fips.get(fips, ""), "tracked": fips in tracked_fips}
+        if fips in df.index:
+            row = df.loc[fips]
+            for k in keys:
+                v = row.get(k)
+                if pd.notna(v):
+                    props[k] = float(v)
+        feat["properties"] = props
 
-    fig = go.Figure(go.Choropleth(
-        geojson=geojson, locations=fips, featureidkey="id",
-        z=d0["z"], text=d0["text"], hovertemplate="%{text}<extra></extra>",
-        colorscale=d0["colorscale"], zmin=d0["zmin"], zmax=d0["zmax"],
-        marker_line_width=0.12, marker_line_color="rgba(255,255,255,0.6)",
-        colorbar=dict(title=dict(text=first["label"], side="right"), thickness=13,
-                      len=0.9, x=0.99, outlinewidth=0),
-    ))
-    tracked = df[df["is_tracked"]]
-    if len(tracked):
-        fig.add_trace(go.Choropleth(
-            geojson=geojson, locations=tracked.index.tolist(), featureidkey="id",
-            z=[0] * len(tracked), showscale=False,
-            colorscale=[[0, "rgba(0,0,0,0)"], [1, "rgba(0,0,0,0)"]],
-            marker_line_color="#111", marker_line_width=1.6,
-            hovertext=tracked["name"], hoverinfo="text",
-        ))
-    fig.update_layout(
-        margin=dict(l=0, r=0, t=0, b=0), height=720, autosize=True,
-        paper_bgcolor="rgba(0,0,0,0)",
-        hoverlabel=dict(bgcolor="white", bordercolor="#d0d5da", font_size=12),
-    )
-    fig.update_geos(scope="usa", projection_type="albers usa",
-                    showlakes=True, lakecolor="#eef3f6", landcolor="#f6f7f5",
-                    bgcolor="rgba(0,0,0,0)", subunitcolor="rgba(255,255,255,0.75)",
-                    showsubunits=True, showcountries=False, framewidth=0)
-
-    chart = pio.to_html(fig, include_plotlyjs=False, full_html=False, div_id="usmap",
-                        config={"displayModeBar": False, "responsive": True})
-
+    metrics_cfg = [_metric_render(df, m) for m in METRICS]
     coverage = {
         "home_value": int(df["home_value"].notna().sum()),
         "rent": int(df["rent"].notna().sum()),
@@ -191,13 +206,14 @@ def render_map_page(config: Config) -> Path:
                       autoescape=select_autoescape(["html"]))
     html = env.get_template("map.html.j2").render(
         generated=datetime.now().strftime("%Y-%m-%d %H:%M"),
-        chart=chart, coverage=coverage,
-        tracked=sorted(tracked["name"].tolist()),
+        coverage=coverage, tracked=sorted(df[df["is_tracked"]]["name"].tolist()),
         metrics=[{"key": m["key"], "label": m["label"]} for m in METRICS],
-        metric_data_json=json.dumps(metric_data, separators=(",", ":")),
+        geojson_json=json.dumps(geojson, separators=(",", ":")),
+        metrics_json=json.dumps(metrics_cfg, separators=(",", ":")),
     )
     dest = config.docs_dir / "map.html"
     dest.write_text(html, encoding="utf-8")
+    # Plotly is the fallback engine; ensure its bundle is present for that path.
     assets = config.docs_dir / "assets" / "plotly.min.js"
     if not assets.exists():
         from plotly.offline import get_plotlyjs
