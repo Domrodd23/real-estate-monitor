@@ -16,6 +16,7 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 import plotly.graph_objects as go
+import plotly.colors as pcol
 import plotly.io as pio
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -55,6 +56,14 @@ def _fmt(kind, v):
     if kind == "count":
         return f"{v:,.0f}"
     return str(v)
+
+
+def _scale_array(name: str):
+    """Named plotly colorscale -> explicit [[pos, 'rgb(...)'], ...] array."""
+    try:
+        return pcol.get_colorscale(name)
+    except Exception:  # noqa: BLE001
+        return pcol.get_colorscale("Viridis")
 
 
 def _load_geojson(config: Config):
@@ -133,43 +142,44 @@ def render_map_page(config: Config) -> Path:
     geojson = _load_geojson(config)
     fips = df.index.tolist()
 
-    z0, text0, zmin0, zmax0, scale0 = _prep(df, METRICS[0])
-    fig = go.Figure(go.Choropleth(
-        geojson=geojson, locations=fips, z=z0, text=text0,
-        hovertemplate="%{text}<extra></extra>",
-        colorscale=scale0, zmin=zmin0, zmax=zmax0,
-        marker_line_width=0, colorbar_title_text=METRICS[0]["label"],
-    ))
+    # Per-metric data for the pill control bar (client-side switch via restyle).
+    metric_data = {}
+    for m in METRICS:
+        z, text, zmin, zmax, scale = _prep(df, m)
+        metric_data[m["key"]] = {"z": z, "text": text, "zmin": zmin, "zmax": zmax,
+                                 "colorscale": _scale_array(scale), "label": m["label"]}
+    first = METRICS[0]
+    d0 = metric_data[first["key"]]
 
-    # Outline tracked counties so the user can find their markets.
+    fig = go.Figure(go.Choropleth(
+        geojson=geojson, locations=fips, featureidkey="id",
+        z=d0["z"], text=d0["text"], hovertemplate="%{text}<extra></extra>",
+        colorscale=d0["colorscale"], zmin=d0["zmin"], zmax=d0["zmax"],
+        marker_line_width=0.12, marker_line_color="rgba(255,255,255,0.6)",
+        colorbar=dict(title=dict(text=first["label"], side="right"), thickness=13,
+                      len=0.9, x=0.99, outlinewidth=0),
+    ))
     tracked = df[df["is_tracked"]]
     if len(tracked):
         fig.add_trace(go.Choropleth(
-            geojson=geojson, locations=tracked.index.tolist(),
+            geojson=geojson, locations=tracked.index.tolist(), featureidkey="id",
             z=[0] * len(tracked), showscale=False,
             colorscale=[[0, "rgba(0,0,0,0)"], [1, "rgba(0,0,0,0)"]],
-            marker_line_color="#111", marker_line_width=1.8,
+            marker_line_color="#111", marker_line_width=1.6,
             hovertext=tracked["name"], hoverinfo="text",
         ))
-
-    buttons = []
-    for m in METRICS:
-        z, text, zmin, zmax, scale = _prep(df, m)
-        buttons.append(dict(
-            method="restyle", label=m["label"],
-            args=[{"z": [z], "text": [text], "zmin": zmin, "zmax": zmax,
-                   "colorscale": [scale], "colorbar.title.text": m["label"]}, [0]],
-        ))
     fig.update_layout(
-        updatemenus=[dict(buttons=buttons, direction="down", showactive=True,
-                          x=0.01, xanchor="left", y=1.0, yanchor="bottom",
-                          bgcolor="white", bordercolor="#ccc")],
-        margin=dict(l=0, r=0, t=8, b=0), height=640,
+        margin=dict(l=0, r=0, t=0, b=0), height=720, autosize=True,
+        paper_bgcolor="rgba(0,0,0,0)",
+        hoverlabel=dict(bgcolor="white", bordercolor="#d0d5da", font_size=12),
     )
-    fig.update_geos(scope="usa", showlakes=False, landcolor="#f2f2f2")
+    fig.update_geos(scope="usa", projection_type="albers usa",
+                    showlakes=True, lakecolor="#eef3f6", landcolor="#f6f7f5",
+                    bgcolor="rgba(0,0,0,0)", subunitcolor="rgba(255,255,255,0.75)",
+                    showsubunits=True, showcountries=False, framewidth=0)
 
-    chart = pio.to_html(fig, include_plotlyjs=False, full_html=False,
-                        config={"displayModeBar": False, "scrollZoom": True})
+    chart = pio.to_html(fig, include_plotlyjs=False, full_html=False, div_id="usmap",
+                        config={"displayModeBar": False, "responsive": True})
 
     coverage = {
         "home_value": int(df["home_value"].notna().sum()),
@@ -183,10 +193,11 @@ def render_map_page(config: Config) -> Path:
         generated=datetime.now().strftime("%Y-%m-%d %H:%M"),
         chart=chart, coverage=coverage,
         tracked=sorted(tracked["name"].tolist()),
+        metrics=[{"key": m["key"], "label": m["label"]} for m in METRICS],
+        metric_data_json=json.dumps(metric_data, separators=(",", ":")),
     )
     dest = config.docs_dir / "map.html"
     dest.write_text(html, encoding="utf-8")
-    # plotly.min.js is written by the dashboard build; ensure it exists.
     assets = config.docs_dir / "assets" / "plotly.min.js"
     if not assets.exists():
         from plotly.offline import get_plotlyjs
