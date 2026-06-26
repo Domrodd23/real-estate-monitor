@@ -68,6 +68,19 @@ SERIES: Dict[str, Dict] = {
         "require": ["/new_listings/", "Metro_new_listings", "uc_sfrcondo", "sm_month.csv"],
         "exclude": ["week"],
     },
+    # County-level national series — backbone of the national map explorer.
+    "zillow_zhvi_county": {
+        "label": "ZHVI home value (county, national)",
+        "geography": "county",
+        "require": ["/zhvi/", "County_zhvi", "uc_sfrcondo_tier_0.33_0.67", "sm_sa", "_month.csv"],
+        "exclude": ["bdrmcnt", "week"],
+    },
+    "zillow_zori_county": {
+        "label": "ZORI rent (county, national)",
+        "geography": "county",
+        "require": ["/zori/", "County_zori", "uc_sfrcondomfr", "sm_month.csv"],
+        "exclude": ["_sa_", "week"],
+    },
 }
 
 # Last-known-good canonical file URLs on Zillow's CDN. Used ONLY when page
@@ -87,6 +100,12 @@ FALLBACK_URLS: Dict[str, str] = {
     "zillow_new_listings_metro":
         "https://files.zillowstatic.com/research/public_csvs/new_listings/"
         "Metro_new_listings_uc_sfrcondo_sm_month.csv",
+    "zillow_zhvi_county":
+        "https://files.zillowstatic.com/research/public_csvs/zhvi/"
+        "County_zhvi_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv",
+    "zillow_zori_county":
+        "https://files.zillowstatic.com/research/public_csvs/zori/"
+        "County_zori_uc_sfrcondomfr_sm_month.csv",
 }
 
 
@@ -220,6 +239,24 @@ def load_metro_series(path: Path, source: str) -> Tuple[pd.DataFrame, List[str]]
     df = pd.read_csv(path, low_memory=False)
     require_columns(df, ["RegionID", "RegionName", "RegionType"], source)
     validate_frame(df, source, min_rows=1)
+    return df, sorted(date_columns(df))
+
+
+def load_county_series(path: Path, source: str) -> Tuple[pd.DataFrame, List[str]]:
+    """Read a Zillow county-level CSV and add a 5-digit `fips` column.
+
+    Zillow county files carry StateCodeFIPS (2) + MunicipalCodeFIPS (3); we join
+    them into the standard county FIPS used by the map's GeoJSON.
+    """
+    df = pd.read_csv(
+        path, dtype={"StateCodeFIPS": str, "MunicipalCodeFIPS": str}, low_memory=False
+    )
+    require_columns(
+        df, ["RegionID", "RegionName", "RegionType", "StateCodeFIPS", "MunicipalCodeFIPS"],
+        source,
+    )
+    validate_frame(df, source, min_rows=1)
+    df["fips"] = df["StateCodeFIPS"].str.zfill(2) + df["MunicipalCodeFIPS"].str.zfill(3)
     return df, sorted(date_columns(df))
 
 

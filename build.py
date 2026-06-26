@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from remon.config import load_config  # noqa: E402
 from remon.logging_setup import get_logger  # noqa: E402
-from remon import dashboard, exports  # noqa: E402
+from remon import dashboard, exports, mapview  # noqa: E402
 
 log = get_logger("build")
 
@@ -26,6 +26,13 @@ def build_all() -> None:
     export_links = exports.generate_exports(config)
     index = dashboard.render_dashboard(config, export_links=export_links)
     log.info("Open the dashboard: %s", index)
+
+    # National map is best-effort: a failure here must not break the core build.
+    try:
+        page = mapview.render_map_page(config)
+        log.info("Open the national map: %s", page)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("National map skipped (%s: %s)", type(exc).__name__, exc)
 
 
 def main() -> int:

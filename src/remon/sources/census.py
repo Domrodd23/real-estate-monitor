@@ -36,7 +36,49 @@ def fetch_census(config: Config) -> Dict[str, Optional[Path]]:
     return {
         "census_acs": _fetch_acs(config, key, raw_dir),
         "census_migration": _fetch_migration(config, key, raw_dir),
+        "census_acs_national": _fetch_acs_national(config, key, raw_dir),
     }
+
+
+def _fetch_acs_national(config: Config, key: str, raw_dir: Path) -> Optional[Path]:
+    """ACS income + population for EVERY US county (for the national map)."""
+    cache_name = "census_acs_national"
+    fresh = find_cached(raw_dir, cache_name, "csv", config.max_age_days)
+    if fresh:
+        log.info("[census_acs_national] reusing fresh cache: %s", fresh.name)
+        return fresh
+
+    src = config.sources["census"]
+    base, ds, yr = src["api_base"], src["acs_dataset"], src["acs_year"]
+    variables: Dict[str, str] = src["variables"]
+    get_vars = ",".join(["NAME"] + list(variables.values()))
+    try:
+        data = get_json(
+            f"{base}/{yr}/{ds}",
+            params={"get": get_vars, "for": "county:*", "key": key},
+        )
+        hdr, *recs = data
+        rows = []
+        for rec in recs:
+            d = dict(zip(hdr, rec))
+            row = {"county_fips": f"{d['state']}{d['county']}", "name": d["NAME"]}
+            for logical, code in variables.items():
+                row[logical] = d.get(code)
+            rows.append(row)
+        df = pd.DataFrame(rows)
+        for logical in variables:
+            df[logical] = _clean(df[logical])
+        validate_frame(df, "Census ACS national", required_columns=["county_fips", "name"])
+        dest = cache_path(raw_dir, cache_name, "csv")
+        df.to_csv(dest, index=False)
+        log.info("[census_acs_national] %d counties cached (ACS %s)", len(df), yr)
+        return dest
+    except (DownloadError, KeyError, ValueError) as exc:
+        log.error("[census_acs_national] fetch failed: %s", exc)
+        stale = last_cached(raw_dir, cache_name, "csv")
+        if stale:
+            log.warning("[census_acs_national] using STALE cache: %s", stale.name)
+        return stale
 
 
 def _fetch_acs(config: Config, key: str, raw_dir: Path) -> Optional[Path]:
