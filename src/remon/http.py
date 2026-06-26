@@ -11,6 +11,7 @@ Dependency-light: retry/backoff is hand-rolled (no extra package).
 from __future__ import annotations
 
 import os
+import re
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -49,6 +50,19 @@ def cache_path(raw_dir: Path, name: str, ext: str, when: Optional[datetime] = No
     return Path(raw_dir) / f"{name}_{_stamp(when)}.{ext}"
 
 
+def _stamped_candidates(raw_dir: Path, name: str, ext: str) -> List[Path]:
+    """Cached files named exactly `{name}_YYYYMMDD.{ext}`, newest first.
+
+    Requiring the 8-digit date stamp prevents a short name (e.g. 'census_acs')
+    from matching a longer one ('census_acs_national_...') — a prefix collision
+    that would otherwise hand back the wrong file.
+    """
+    ext = ext.lstrip(".")
+    pat = re.compile(rf"^{re.escape(name)}_\d{{8}}\.{re.escape(ext)}$")
+    matches = [p for p in Path(raw_dir).glob(f"{name}_*.{ext}") if pat.fullmatch(p.name)]
+    return sorted(matches, key=lambda p: p.stat().st_mtime, reverse=True)
+
+
 def find_cached(raw_dir: Path, name: str, ext: str, max_age_days: int) -> Optional[Path]:
     """Return the newest cached file for `name` within max_age_days, else None.
 
@@ -57,12 +71,7 @@ def find_cached(raw_dir: Path, name: str, ext: str, max_age_days: int) -> Option
     """
     if os.environ.get("REMON_NO_CACHE", "").strip() not in ("", "0", "false", "False"):
         return None
-    ext = ext.lstrip(".")
-    candidates = sorted(
-        Path(raw_dir).glob(f"{name}_*.{ext}"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
+    candidates = _stamped_candidates(raw_dir, name, ext)
     if not candidates:
         return None
     newest = candidates[0]
@@ -78,12 +87,7 @@ def last_cached(raw_dir: Path, name: str, ext: str) -> Optional[Path]:
     Used for graceful degradation: if a source is unreachable, fall back to the
     last good copy and mark it stale in the dashboard footer.
     """
-    ext = ext.lstrip(".")
-    candidates = sorted(
-        Path(raw_dir).glob(f"{name}_*.{ext}"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
+    candidates = _stamped_candidates(raw_dir, name, ext)
     return candidates[0] if candidates else None
 
 
