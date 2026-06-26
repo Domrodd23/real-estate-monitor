@@ -137,42 +137,49 @@ def _prep(df: pd.DataFrame, m: Dict):
     return z, text, zmin, zmax, m["scale"]
 
 
-# Color ramps shared by the MapLibre tile map and the plotly fallback.
-SEQ_COLORS = ["#440154", "#414487", "#2a788e", "#22a884", "#7ad151", "#fde725"]
-DIV_COLORS = ["#b2182b", "#ef8a62", "#fddbc7", "#f7f7f7", "#d9f0d3", "#7fbf7b", "#1b7837"]
+# Discrete palettes (ColorBrewer). Quantile bins spread these evenly across the
+# country so regional differences are visible instead of one flat shade.
+PALETTE_SEQ = ["#fff7ec", "#fee8c8", "#fdbb84", "#fc8d59", "#ef6548", "#d7301f", "#990000"]
+PALETTE_DIV = ["#d73027", "#f46d43", "#fee08b", "#ffffbf", "#d9ef8b", "#66bd63", "#1a9850"]
 
 
-def _linspace(lo, hi, n):
-    if n <= 1 or hi == lo:
-        return [lo for _ in range(n)]
-    step = (hi - lo) / (n - 1)
-    return [lo + step * i for i in range(n)]
+def _quantile_edges(vals: pd.Series, n_colors: int):
+    """Up to n_colors-1 strictly-increasing quantile bin edges."""
+    edges = []
+    for i in range(1, n_colors):
+        e = float(vals.quantile(i / n_colors))
+        if not edges or e > edges[-1]:
+            edges.append(round(e, 4))
+    return edges
 
 
 def _metric_render(df: pd.DataFrame, m: dict) -> dict:
-    """MapLibre fill expression + plotly colorscale + range + legend for a metric."""
+    """Quantile-binned MapLibre step fill + discrete legend (+ data for fallback)."""
     vals = pd.to_numeric(df[m["key"]], errors="coerce").dropna()
-    if m.get("diverging"):
-        mx = (float(vals.abs().quantile(0.95)) if len(vals) else 1.0) or 1.0
-        colors, zmin, zmax = DIV_COLORS, -mx, mx
-    else:
-        lo = float(vals.quantile(0.05)) if len(vals) else 0.0
-        hi = float(vals.quantile(0.95)) if len(vals) else 1.0
-        if hi <= lo:
-            hi = lo + 1.0
-        colors, zmin, zmax = SEQ_COLORS, lo, hi
-    breaks = _linspace(zmin, zmax, len(colors))
-    interp = ["interpolate", ["linear"], ["get", m["key"]]]
-    for b, c in zip(breaks, colors):
-        interp += [b, c]
-    n = len(colors)
-    return {
-        "key": m["key"], "label": m["label"], "fmt": m["fmt"],
-        "expr": ["case", ["has", m["key"]], interp, "#e8e8e8"],            # MapLibre
-        "colorscale": [[i / (n - 1), c] for i, c in enumerate(colors)],     # plotly fallback
-        "zmin": zmin, "zmax": zmax,
-        "legend": {"colors": colors, "lo": _fmt(m["fmt"], zmin), "hi": _fmt(m["fmt"], zmax)},
-    }
+    colors = PALETTE_DIV if m.get("diverging") else PALETTE_SEQ
+    edges = _quantile_edges(vals, len(colors)) if len(vals) else []
+    used = colors[: len(edges) + 1]
+
+    # MapLibre step expression: value -> bucket color; gray where the metric is absent.
+    step = ["step", ["get", m["key"]], used[0]]
+    for i, e in enumerate(edges):
+        step += [e, used[i + 1]]
+    expr = ["case", ["has", m["key"]], step, "#e8e8e8"]
+
+    legend = []
+    for i, c in enumerate(used):
+        if not edges:
+            lab = "all"
+        elif i == 0:
+            lab = f"< {_fmt(m['fmt'], edges[0])}"
+        elif i == len(used) - 1:
+            lab = f"≥ {_fmt(m['fmt'], edges[-1])}"
+        else:
+            lab = f"{_fmt(m['fmt'], edges[i - 1])} – {_fmt(m['fmt'], edges[i])}"
+        legend.append({"color": c, "label": lab})
+
+    return {"key": m["key"], "label": m["label"], "fmt": m["fmt"],
+            "expr": expr, "edges": edges, "colors": used, "legend": legend}
 
 
 def render_map_page(config: Config) -> Path:

@@ -23,9 +23,10 @@
   .pill:hover { border-color:var(--accent); color:var(--accent); }
   .pill.active { background:var(--accent); border-color:var(--accent); color:#fff;
                  box-shadow:0 1px 5px rgba(31,111,235,.35); }
-  .legend { display:flex; align-items:center; gap:8px; padding:2px 22px 8px; font-size:.78rem; color:var(--muted); }
+  .legend { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:2px 22px 8px; font-size:.76rem; color:var(--muted); }
   .legend .lt { font-weight:600; color:#33404d; }
-  .legend .lbar { width:220px; height:11px; border-radius:3px; border:1px solid #ccc; display:inline-block; }
+  .legend .lkey { display:inline-flex; align-items:center; gap:4px; white-space:nowrap; }
+  .legend .sw { width:13px; height:13px; border-radius:3px; border:1px solid rgba(0,0,0,0.15); display:inline-block; }
   .mapwrap { padding:0 22px; }
   #map, #usmap { width:100%; height:74vh; min-height:460px; border:1px solid var(--line);
          border-radius:10px; box-shadow:0 1px 6px rgba(0,0,0,.05); }
@@ -82,9 +83,12 @@ function fmt(kind, v){
 function setLegend(key){
   const m = byKey[key];
   document.getElementById('legend').innerHTML =
-    '<span class="lt">' + m.label + '</span><span>' + m.legend.lo + '</span>' +
-    '<span class="lbar" style="background:linear-gradient(to right,' + m.legend.colors.join(',') + ')"></span>' +
-    '<span>' + m.legend.hi + '</span>';
+    '<span class="lt">' + m.label + '</span>' +
+    m.legend.map(s => '<span class="lkey"><span class="sw" style="background:' + s.color + '"></span>' + s.label + '</span>').join('');
+}
+function binIndex(v, edges){
+  if(v === null || v === undefined || isNaN(v)) return null;
+  let i = 0; for(const e of edges){ if(v >= e) i++; else break; } return i;
 }
 setLegend(currentKey);
 
@@ -104,7 +108,7 @@ function addCounties(){
   try {
     map.addSource('counties', { type: 'geojson', data: GEOJSON });
     map.addLayer({ id: 'counties-fill', type: 'fill', source: 'counties',
-      paint: { 'fill-color': byKey[currentKey].expr, 'fill-opacity': 0.82 } });
+      paint: { 'fill-color': byKey[currentKey].expr, 'fill-opacity': 0.9 } });
     map.addLayer({ id: 'counties-line', type: 'line', source: 'counties',
       paint: { 'line-color': 'rgba(120,130,140,0.3)', 'line-width': 0.3 } });
     map.addLayer({ id: 'tracked-line', type: 'line', source: 'counties',
@@ -149,18 +153,21 @@ function showFallback(){
          s.onload = () => renderPlotly(currentKey); document.body.appendChild(s); }
 }
 function renderPlotly(key){
-  const m = byKey[key], locs = [], z = [], text = [], tl = [], tz = [], tt = [];
+  const m = byKey[key], k = m.colors.length, locs = [], z = [], text = [], tl = [], tz = [], tt = [];
+  // Discrete colorscale matching the tile map's quantile bins.
+  const cs = [];
+  for(let i = 0; i < k; i++){ cs.push([i / k, m.colors[i]]); cs.push([(i + 1) / k, m.colors[i]]); }
   for(const f of GEOJSON.features){
     const v = (f.properties[key] === undefined) ? null : f.properties[key];
-    locs.push(f.id); z.push(v);
+    const bi = binIndex(v, m.edges);
+    locs.push(f.id); z.push(bi === null ? null : bi + 0.5);
     text.push((f.properties.cname || '') + '<br>' + m.label + ': ' + fmt(m.fmt, v));
     if(f.properties.tracked){ tl.push(f.id); tz.push(0); tt.push(f.properties.cname || ''); }
   }
   Plotly.newPlot('usmap', [
     { type:'choropleth', geojson:GEOJSON, locations:locs, featureidkey:'id', z, text,
-      hovertemplate:'%{text}<extra></extra>', colorscale:m.colorscale, zmin:m.zmin, zmax:m.zmax,
-      marker:{ line:{ width:0.12, color:'rgba(255,255,255,0.6)' } },
-      colorbar:{ title:{ text:m.label, side:'right' }, thickness:13, len:0.9 } },
+      hovertemplate:'%{text}<extra></extra>', colorscale:cs, zmin:0, zmax:k, showscale:false,
+      marker:{ line:{ width:0.12, color:'rgba(255,255,255,0.6)' } } },
     { type:'choropleth', geojson:GEOJSON, locations:tl, featureidkey:'id', z:tz, showscale:false,
       colorscale:[[0,'rgba(0,0,0,0)'],[1,'rgba(0,0,0,0)']], marker:{ line:{ color:'#111', width:1.6 } },
       hovertext:tt, hoverinfo:'text' }
