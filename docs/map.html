@@ -17,6 +17,9 @@
   .topbar a { color:var(--accent); text-decoration:none; font-size:.9rem; }
   .topbar a:hover { text-decoration:underline; }
   .topbar .gen { color:var(--muted); font-size:.8rem; margin-left:auto; }
+  .reset { border:1px solid var(--line); background:#fff; color:#33404d; border-radius:7px;
+           padding:5px 11px; font-size:.82rem; cursor:pointer; }
+  .reset:hover { border-color:var(--accent); color:var(--accent); }
   .pillbar { display:flex; gap:8px; flex-wrap:wrap; padding:10px 22px 6px; }
   .pill { border:1px solid var(--line); background:#f6f8fa; color:#33404d; border-radius:999px;
           padding:7px 15px; font-size:.85rem; font-weight:500; cursor:pointer;
@@ -40,7 +43,8 @@
   <div class="topbar">
     <a href="index.html">← Dashboard</a>
     <h1>National map</h1>
-    <span class="gen">Updated 2026-06-26 18:08</span>
+    <button id="resetBtn" class="reset">↺ Zoom out to US</button>
+    <span class="gen">Updated 2026-06-26 20:37</span>
   </div>
 
   <div class="pillbar">
@@ -139,6 +143,31 @@ function addLayers(){
 
   hover('counties-fill');
   if(HAS_ZIPS) hover('zips-fill');
+
+  // Click a region to zoom into it (prefer ZIP over county when both are present).
+  map.on('click', (e) => {
+    const layers = (HAS_ZIPS && map.getLayer('zips-fill')) ? ['zips-fill', 'counties-fill'] : ['counties-fill'];
+    const feats = map.queryRenderedFeatures(e.point, { layers });
+    if(!feats.length) return;
+    const f = feats.find(x => x.layer.id === 'zips-fill') || feats[0];
+    const b = geometryBounds(f.geometry);
+    if(b) map.fitBounds(b, { padding: 60, duration: 700, maxZoom: 12 });
+  });
+  // Repaint as tiles stream in (keeps the map responsive even if rAF is sluggish).
+  map.on('sourcedata', (e) => { if(e.isSourceLoaded) map.triggerRepaint(); });
+  map.resize();
+}
+
+function geometryBounds(geom){
+  let minX = 180, minY = 90, maxX = -180, maxY = -90;
+  const visit = c => {
+    if(typeof c[0] === 'number'){
+      minX = Math.min(minX, c[0]); maxX = Math.max(maxX, c[0]);
+      minY = Math.min(minY, c[1]); maxY = Math.max(maxY, c[1]);
+    } else c.forEach(visit);
+  };
+  try { visit(geom.coordinates); } catch(e){ return null; }
+  return [[minX, minY], [maxX, maxY]];
 }
 
 function setMetric(btn){
@@ -159,10 +188,17 @@ try {
     center: [-96, 38.6], zoom: 3.4, maxZoom: 13, minZoom: 2, dragRotate: false });
   map.addControl(new maplibregl.NavigationControl({ showCompass:false }), 'top-right');
   map.on('load', addLayers);
+  // The 'load' event can be unreliable with some vector styles, so also poll
+  // until the style is ready and add the data layers then.
   const _iv = setInterval(() => {
     if(map.isStyleLoaded()){ addLayers(); if(map.getLayer('counties-fill')) clearInterval(_iv); }
   }, 250);
   setTimeout(() => clearInterval(_iv), 20000);
+  document.getElementById('resetBtn').onclick = () =>
+    map.flyTo({ center:[-96, 38.6], zoom:3.4, duration:800 });
+  // Kick the render loop a few times so the map paints immediately on load.
+  [120, 500, 1200, 2500, 4000].forEach(t =>
+    setTimeout(() => { try { map.resize(); map.triggerRepaint(); } catch(e){} }, t));
 } catch(e){
   document.getElementById('map').innerHTML =
     '<p style="padding:24px;color:#5b6670">The map could not load. Please refresh the page.</p>';
