@@ -144,6 +144,12 @@ try {
     center: [-96, 38.6], zoom: 3.4, maxZoom: 13, minZoom: 2, dragRotate: false });
   map.addControl(new maplibregl.NavigationControl({ showCompass:false }), 'top-right');
   map.on('load', addLayers);
+  // The 'load' event can be unreliable with some vector styles, so also poll
+  // until the style is ready and add the data layers then.
+  const _iv = setInterval(() => {
+    if(map.isStyleLoaded()){ addLayers(); if(map.getLayer('counties-fill')) clearInterval(_iv); }
+  }, 250);
+  setTimeout(() => clearInterval(_iv), 20000);
 } catch(e){
   document.getElementById('map').innerHTML =
     '<p style="padding:24px;color:#5b6670">The map could not load. Please refresh the page.</p>';
