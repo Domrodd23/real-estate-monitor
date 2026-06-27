@@ -10,6 +10,8 @@ build.py logs a warning and continues if the national data isn't available.
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -264,6 +266,48 @@ def build_zip_layer(config: Config, state_abbr: str):
     return {"code": state_abbr.lower(), "file": dest.name, "count": len(feats)}
 
 
+def _find_tippecanoe() -> Optional[str]:
+    p = shutil.which("tippecanoe")
+    if p:
+        return p
+    fallback = Path.home() / ".recmon-tools" / "tippecanoe" / "tippecanoe"
+    return str(fallback) if fallback.exists() else None
+
+
+def _generate_tiles(config: Config, geojson: dict, zip_states: list) -> bool:
+    """Bake county + ZIP vector tiles (PMTiles) with tippecanoe. Best-effort:
+    if tippecanoe is absent (e.g. a machine without it), keep the committed tiles."""
+    tip = _find_tippecanoe()
+    if not tip:
+        log.warning("[map] tippecanoe not found — keeping existing PMTiles "
+                    "(install/build tippecanoe to regenerate)")
+        return False
+    build = config.raw_dir / "tilebuild"
+    build.mkdir(parents=True, exist_ok=True)
+    docs = config.docs_dir
+
+    cpath = build / "counties_props.geojson"
+    cpath.write_text(json.dumps(geojson, separators=(",", ":")), encoding="utf-8")
+    subprocess.run([tip, "-o", str(docs / "counties.pmtiles"), "-Z0", "-z9",
+                    "-l", "counties", "-r1", "--no-tile-size-limit", "--force", str(cpath)],
+                   check=True, capture_output=True)
+    log.info("[map] baked counties.pmtiles")
+
+    if zip_states:
+        allz = {"type": "FeatureCollection", "features": []}
+        for st in zip_states:
+            zf = docs / st["file"]
+            if zf.exists():
+                allz["features"] += json.loads(zf.read_text(encoding="utf-8"))["features"]
+        zpath = build / "zips_all.geojson"
+        zpath.write_text(json.dumps(allz, separators=(",", ":")), encoding="utf-8")
+        subprocess.run([tip, "-o", str(docs / "zips.pmtiles"), "-Z5", "-z12",
+                        "-l", "zips", "-r1", "--no-tile-size-limit", "--force", str(zpath)],
+                       check=True, capture_output=True)
+        log.info("[map] baked zips.pmtiles (%d ZIPs)", len(allz["features"]))
+    return True
+
+
 def render_map_page(config: Config) -> Path:
     df = build_county_table(config)
     geojson = _load_geojson(config)
@@ -305,23 +349,23 @@ def render_map_page(config: Config) -> Path:
         "income": int(df["median_income"].notna().sum()),
         "total": len(df),
     }
+
+    # Bake the streaming vector tiles (best-effort; keeps committed tiles if no tippecanoe).
+    try:
+        _generate_tiles(config, geojson, zip_states)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[map] tile generation failed (%s) — keeping existing PMTiles", exc)
+
     env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)),
                       autoescape=select_autoescape(["html"]))
     html = env.get_template("map.html.j2").render(
         generated=datetime.now().strftime("%Y-%m-%d %H:%M"),
         coverage=coverage, tracked=sorted(df[df["is_tracked"]]["name"].tolist()),
         metrics=[{"key": m["key"], "label": m["label"]} for m in METRICS],
-        geojson_json=json.dumps(geojson, separators=(",", ":")),
         metrics_json=json.dumps(metrics_cfg, separators=(",", ":")),
-        zip_states_json=json.dumps(zip_states, separators=(",", ":")),
+        zip_states=zip_states,
     )
     dest = config.docs_dir / "map.html"
     dest.write_text(html, encoding="utf-8")
-    # Plotly is the fallback engine; ensure its bundle is present for that path.
-    assets = config.docs_dir / "assets" / "plotly.min.js"
-    if not assets.exists():
-        from plotly.offline import get_plotlyjs
-        assets.parent.mkdir(parents=True, exist_ok=True)
-        assets.write_text(get_plotlyjs(), encoding="utf-8")
-    log.info("[map] wrote %s (%d counties)", dest, len(df))
+    log.info("[map] wrote %s (PMTiles vector map)", dest)
     return dest

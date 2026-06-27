@@ -3,9 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>National county map — real estate monitor</title>
+<title>National map — real estate monitor</title>
 <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://unpkg.com/pmtiles@3.2.1/dist/pmtiles.js"></script>
 <style>
   :root { --accent:#1f6feb; --ink:#1b1f23; --muted:#5b6670; --line:#e3e7eb; }
   * { box-sizing:border-box; }
@@ -29,8 +30,8 @@
   .legend .lbar { width:260px; height:12px; border-radius:7px; display:inline-block;
                   border:1px solid rgba(0,0,0,0.12); }
   .mapwrap { padding:0 22px; }
-  #map, #usmap { width:100%; height:74vh; min-height:460px; border:1px solid var(--line);
-         border-radius:10px; box-shadow:0 1px 6px rgba(0,0,0,.05); }
+  #map { width:100%; height:76vh; min-height:480px; border:1px solid var(--line);
+         border-radius:10px; box-shadow:0 1px 6px rgba(0,0,0,.05); overflow:hidden; }
   .maplibregl-popup-content { font-size:12.5px; padding:8px 11px; border-radius:7px; }
   .note { color:var(--muted); font-size:.82rem; padding:12px 22px 34px; max-width:1000px; line-height:1.5; }
 </style>
@@ -38,7 +39,7 @@
 <body>
   <div class="topbar">
     <a href="index.html">← Dashboard</a>
-    <h1>National county map</h1>
+    <h1>National map</h1>
     <span class="gen">Updated {{ generated }}</span>
   </div>
 
@@ -50,160 +51,79 @@
   </div>
   <div class="legend" id="legend"></div>
 
-  <div class="mapwrap">
-    <div id="map"></div>
-    <div id="usmap" style="display:none;"></div>
-  </div>
+  <div class="mapwrap"><div id="map"></div></div>
 
   <p class="note">
-    Drag to pan, scroll to zoom, hover any county for its value. Your markets
-    (<strong>{{ tracked | join(', ') }}</strong>) are outlined in black. Gray counties
-    have no public value for the selected metric. Coverage: home value
+    Drag to pan, scroll to zoom, hover for values. Zoom into a tracked state
+    ({{ tracked | join(', ') }}) to drill down to <strong>ZIP-level</strong> detail.
+    Gray areas have no public value for the selected metric. Coverage: home value
     {{ coverage.home_value }}/{{ coverage.total }} counties, rent {{ coverage.rent }},
-    income {{ coverage.income }}. Sources: Zillow ZHVI/ZORI (county) + Census ACS 5-year.
-    Public data, not a forecast.
+    income {{ coverage.income }}. Sources: Zillow ZHVI/ZORI + Census ACS 5-year.
+    Streamed as vector tiles. Public data, not a forecast.
   </p>
 
 <script>
-const GEOJSON = {{ geojson_json | safe }};
 const METRICS = {{ metrics_json | safe }};
-const ZIP_STATES = {{ zip_states_json | safe }};   // [{code,file,count}] — drill-down layers
+const HAS_ZIPS = {{ 'true' if zip_states else 'false' }};
 const byKey = {}; METRICS.forEach(m => byKey[m.key] = m);
-let currentKey = METRICS[0].key;
-let fallbackActive = false;
-let firstSymbolId = null;            // basemap label layer to insert fills beneath
-const zipLoaded = {};                // state code -> true once its ZIP layer is added
+let currentKey = METRICS[0].key, firstSymbolId = null;
 
 function fmt(kind, v){
-  if(v === null || v === undefined || v === '' || isNaN(v)) return 'n/a';
-  v = Number(v);
+  if(v === null || v === undefined || isNaN(v)) return 'n/a';
   if(kind === 'usd') return '$' + Math.round(v).toLocaleString();
   if(kind === 'usd_mo') return '$' + Math.round(v).toLocaleString() + '/mo';
   if(kind === 'pct') return (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
   if(kind === 'ratio') return v.toFixed(1) + 'x';
   if(kind === 'count') return Math.round(v).toLocaleString();
-  return '' + v;
+  return v;
 }
 function setLegend(key){
-  const m = byKey[key], L = m.legend;
-  const grad = 'linear-gradient(to right,' + L.colors.join(',') + ')';
+  const L = byKey[key].legend;
   document.getElementById('legend').innerHTML =
-    '<span class="lt">' + m.label + '</span>' +
+    '<span class="lt">' + byKey[key].label + '</span>' +
     '<span class="lv">' + L.lo + '</span>' +
-    '<span class="lbar" style="background:' + grad + '"></span>' +
+    '<span class="lbar" style="background:linear-gradient(to right,' + L.colors.join(',') + ')"></span>' +
     '<span class="lv">' + L.hi + '</span>';
 }
 setLegend(currentKey);
 
-// ---------- Preferred: smooth MapLibre tile map ----------
-let map = null, added = false;
-function addCounties(){
-  if(added || !map.isStyleLoaded()) return;
-  try {
-    // Insert the choropleth BELOW the basemap's first label layer, so city
-    // names stay crisp on top — the polished look, and smooth on vector tiles.
-    for(const l of map.getStyle().layers){ if(l.type === 'symbol'){ firstSymbolId = l.id; break; } }
-    // tolerance simplifies the geometry MapLibre rasterizes → lighter, smoother.
-    map.addSource('counties', { type: 'geojson', data: GEOJSON, tolerance: 0.7 });
-    map.addLayer({ id: 'counties-fill', type: 'fill', source: 'counties',
-      paint: { 'fill-color': byKey[currentKey].expr, 'fill-opacity': 0.72 } }, firstSymbolId);
-    map.addLayer({ id: 'counties-line', type: 'line', source: 'counties',
-      paint: { 'line-color': 'rgba(90,100,110,0.28)', 'line-width': 0.3 } }, firstSymbolId);
-    map.addLayer({ id: 'tracked-line', type: 'line', source: 'counties',
-      filter: ['==', ['get', 'tracked'], true],
-      paint: { 'line-color': '#111', 'line-width': 2 } });
-    added = true;
-    const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
-    map.on('mousemove', 'counties-fill', e => {
-      map.getCanvas().style.cursor = 'pointer';
-      const p = e.features[0].properties;
-      popup.setLngLat(e.lngLat).setHTML('<strong>' + (p.cname || 'County') + '</strong><br>' +
-        byKey[currentKey].label + ': ' + fmt(byKey[currentKey].fmt, p[currentKey])).addTo(map);
-    });
-    map.on('mouseleave', 'counties-fill', () => { map.getCanvas().style.cursor = ''; popup.remove(); });
-  } catch(e){ /* retry on a later event */ }
-}
+// Register the PMTiles protocol so MapLibre can stream our baked vector tiles.
+maplibregl.addProtocol('pmtiles', new pmtiles.Protocol().tile);
 
-// ---------- Drill-down: load ZIP layers for tracked states once zoomed in ----------
-const ZIP_MINZOOM = 6;
-function maybeLoadZips(){
-  if(!added || fallbackActive || map.getZoom() < ZIP_MINZOOM) return;
-  for(const st of ZIP_STATES){ if(!zipLoaded[st.code]) loadZipState(st); }
-}
-function loadZipState(st){
-  zipLoaded[st.code] = true;
-  fetch(st.file).then(r => r.json()).then(gj => addZipLayer(st.code, gj))
-    .catch(() => { zipLoaded[st.code] = false; });
-}
-function addZipLayer(code, gj){
-  const src = 'zips_' + code, fillId = src + '_fill';
-  if(map.getSource(src)) return;
-  map.addSource(src, { type: 'geojson', data: gj, tolerance: 0.3 });
-  map.addLayer({ id: fillId, type: 'fill', source: src, minzoom: ZIP_MINZOOM,
-    paint: { 'fill-color': byKey[currentKey].expr, 'fill-opacity': 0.8 } }, firstSymbolId);
-  map.addLayer({ id: src + '_line', type: 'line', source: src, minzoom: ZIP_MINZOOM,
-    paint: { 'line-color': 'rgba(70,80,90,0.45)', 'line-width': 0.5 } }, firstSymbolId);
-  const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false });
-  map.on('mousemove', fillId, e => {
+function hover(layerId){
+  const popup = new maplibregl.Popup({ closeButton:false, closeOnClick:false });
+  map.on('mousemove', layerId, e => {
     map.getCanvas().style.cursor = 'pointer';
     const p = e.features[0].properties;
-    popup.setLngLat(e.lngLat).setHTML('<strong>' + (p.cname || 'ZIP') + '</strong><br>' +
+    popup.setLngLat(e.lngLat).setHTML('<strong>' + (p.cname || '') + '</strong><br>' +
       byKey[currentKey].label + ': ' + fmt(byKey[currentKey].fmt, p[currentKey])).addTo(map);
   });
-  map.on('mouseleave', fillId, () => { map.getCanvas().style.cursor = ''; popup.remove(); });
+  map.on('mouseleave', layerId, () => { map.getCanvas().style.cursor = ''; popup.remove(); });
 }
 
-try {
-  map = new maplibregl.Map({
-    container: 'map',
-    // Vector basemap (smooth, crisp at any zoom). Falls back to plotly if it can't load.
-    style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
-    center: [-96, 38.6], zoom: 3.2, maxZoom: 13, minZoom: 2, dragRotate: false });
-  map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-  map.on('load', addCounties);
-  map.on('styledata', addCounties);
-  map.on('idle', () => { addCounties(); maybeLoadZips(); });
-  map.on('moveend', maybeLoadZips);
-  // If the tile map hasn't painted counties in time, fall back to the reliable engine.
-  setTimeout(() => {
-    let ok = false;
-    try { ok = added && map.getLayer('counties-fill') &&
-               map.queryRenderedFeatures({ layers: ['counties-fill'] }).length > 0; } catch(e){}
-    if(!ok) showFallback();
-  }, 9000);
-} catch(e){ showFallback(); }
+function addLayers(){
+  if(map.getLayer('counties-fill')) return;
+  for(const l of map.getStyle().layers){ if(l.type === 'symbol'){ firstSymbolId = l.id; break; } }
 
-// ---------- Fallback: reliable plotly geo choropleth ----------
-function showFallback(){
-  if(fallbackActive) return;
-  fallbackActive = true;
-  try { if(map) map.remove(); } catch(e){}
-  document.getElementById('map').style.display = 'none';
-  document.getElementById('usmap').style.display = 'block';
-  if(typeof Plotly !== 'undefined') renderPlotly(currentKey);
-  else { const s = document.createElement('script'); s.src = 'assets/plotly.min.js';
-         s.onload = () => renderPlotly(currentKey); document.body.appendChild(s); }
-}
-function renderPlotly(key){
-  const m = byKey[key], locs = [], z = [], text = [], tl = [], tz = [], tt = [];
-  for(const f of GEOJSON.features){
-    const v = (f.properties[key] === undefined) ? null : f.properties[key];
-    locs.push(f.id); z.push(v);
-    text.push((f.properties.cname || '') + '<br>' + m.label + ': ' + fmt(m.fmt, v));
-    if(f.properties.tracked){ tl.push(f.id); tz.push(0); tt.push(f.properties.cname || ''); }
+  map.addSource('counties', { type:'vector', url:'pmtiles://counties.pmtiles' });
+  map.addLayer({ id:'counties-fill', type:'fill', source:'counties', 'source-layer':'counties',
+    paint:{ 'fill-color':byKey[currentKey].expr, 'fill-opacity':0.72 } }, firstSymbolId);
+  map.addLayer({ id:'counties-line', type:'line', source:'counties', 'source-layer':'counties',
+    paint:{ 'line-color':'rgba(90,100,110,0.25)', 'line-width':0.3 } }, firstSymbolId);
+
+  if(HAS_ZIPS){
+    map.addSource('zips', { type:'vector', url:'pmtiles://zips.pmtiles' });
+    map.addLayer({ id:'zips-fill', type:'fill', source:'zips', 'source-layer':'zips', minzoom:6,
+      paint:{ 'fill-color':byKey[currentKey].expr, 'fill-opacity':0.82 } }, firstSymbolId);
+    map.addLayer({ id:'zips-line', type:'line', source:'zips', 'source-layer':'zips', minzoom:6,
+      paint:{ 'line-color':'rgba(70,80,90,0.4)', 'line-width':0.5 } }, firstSymbolId);
   }
-  Plotly.newPlot('usmap', [
-    { type:'choropleth', geojson:GEOJSON, locations:locs, featureidkey:'id', z, text,
-      hovertemplate:'%{text}<extra></extra>', colorscale:m.colorscale, zmin:m.zmin, zmax:m.zmax,
-      showscale:false, marker:{ line:{ width:0.12, color:'rgba(255,255,255,0.6)' } } },
-    { type:'choropleth', geojson:GEOJSON, locations:tl, featureidkey:'id', z:tz, showscale:false,
-      colorscale:[[0,'rgba(0,0,0,0)'],[1,'rgba(0,0,0,0)']], marker:{ line:{ color:'#111', width:1.6 } },
-      hovertext:tt, hoverinfo:'text' }
-  ], { geo:{ scope:'usa', showlakes:true, lakecolor:'#eef3f6', landcolor:'#f6f7f5',
-        bgcolor:'rgba(0,0,0,0)', showcountries:false, framewidth:0 },
-      margin:{ l:6, r:6, t:6, b:6 }, height:720,
-      hoverlabel:{ bgcolor:'white', bordercolor:'#d0d5da' } },
-    { displayModeBar:false, responsive:true });
+  // tracked counties outlined on top
+  map.addLayer({ id:'tracked-line', type:'line', source:'counties', 'source-layer':'counties',
+    filter:['==', ['get','tracked'], true], paint:{ 'line-color':'#111', 'line-width':2 } });
+
+  hover('counties-fill');
+  if(HAS_ZIPS) hover('zips-fill');
 }
 
 function setMetric(btn){
@@ -211,14 +131,22 @@ function setMetric(btn){
   btn.classList.add('active');
   currentKey = btn.dataset.key;
   setLegend(currentKey);
-  if(fallbackActive){ renderPlotly(currentKey); return; }
-  if(map && map.getLayer && map.getLayer('counties-fill')){
-    map.setPaintProperty('counties-fill', 'fill-color', byKey[currentKey].expr);
-    for(const st of ZIP_STATES){
-      const id = 'zips_' + st.code + '_fill';
-      if(map.getLayer(id)) map.setPaintProperty(id, 'fill-color', byKey[currentKey].expr);
-    }
+  for(const id of ['counties-fill', 'zips-fill']){
+    if(map.getLayer(id)) map.setPaintProperty(id, 'fill-color', byKey[currentKey].expr);
   }
+}
+
+let map;
+try {
+  map = new maplibregl.Map({
+    container: 'map',
+    style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+    center: [-96, 38.6], zoom: 3.4, maxZoom: 13, minZoom: 2, dragRotate: false });
+  map.addControl(new maplibregl.NavigationControl({ showCompass:false }), 'top-right');
+  map.on('load', addLayers);
+} catch(e){
+  document.getElementById('map').innerHTML =
+    '<p style="padding:24px;color:#5b6670">The map could not load. Please refresh the page.</p>';
 }
 </script>
 </body>
