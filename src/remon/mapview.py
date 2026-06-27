@@ -137,49 +137,41 @@ def _prep(df: pd.DataFrame, m: Dict):
     return z, text, zmin, zmax, m["scale"]
 
 
-# Discrete palettes (ColorBrewer). Quantile bins spread these evenly across the
-# country so regional differences are visible instead of one flat shade.
-PALETTE_SEQ = ["#fff7ec", "#fee8c8", "#fdbb84", "#fc8d59", "#ef6548", "#d7301f", "#990000"]
-PALETTE_DIV = ["#d73027", "#f46d43", "#fee08b", "#ffffbf", "#d9ef8b", "#66bd63", "#1a9850"]
-
-
-def _quantile_edges(vals: pd.Series, n_colors: int):
-    """Up to n_colors-1 strictly-increasing quantile bin edges."""
-    edges = []
-    for i in range(1, n_colors):
-        e = float(vals.quantile(i / n_colors))
-        if not edges or e > edges[-1]:
-            edges.append(round(e, 4))
-    return edges
+# Smooth heat ramps (ColorBrewer Spectral / RdYlGn). Color STOPS sit at data
+# quantiles, so the gradient is both smooth AND evenly spread — no flat blocks,
+# no one-shade map. This is how Zillow/Reventure heat maps read.
+PALETTE_SEQ = ["#3288bd", "#66c2a5", "#abdda4", "#e6f598", "#fee08b", "#fc8d59", "#d53e4f"]
+PALETTE_DIV = ["#d73027", "#f46d43", "#fdae61", "#fee08b", "#d9ef8b", "#a6d96a", "#1a9850"]
 
 
 def _metric_render(df: pd.DataFrame, m: dict) -> dict:
-    """Quantile-binned MapLibre step fill + discrete legend (+ data for fallback)."""
+    """Smooth quantile-stretched gradient: MapLibre interpolate + plotly colorscale."""
     vals = pd.to_numeric(df[m["key"]], errors="coerce").dropna()
     colors = PALETTE_DIV if m.get("diverging") else PALETTE_SEQ
-    edges = _quantile_edges(vals, len(colors)) if len(vals) else []
-    used = colors[: len(edges) + 1]
+    n = len(colors)
+    # Color stops at evenly-spaced quantiles (pulled slightly off the extremes so
+    # outliers don't hog the ramp). Smooth interpolation between them.
+    stops = []
+    for i in range(n):
+        q = 0.02 + 0.96 * (i / (n - 1))
+        s = float(vals.quantile(q)) if len(vals) else float(i)
+        if stops and s <= stops[-1]:
+            s = stops[-1] + 1e-6 * (abs(stops[-1]) + 1.0)
+        stops.append(s)
 
-    # MapLibre step expression: value -> bucket color; gray where the metric is absent.
-    step = ["step", ["get", m["key"]], used[0]]
-    for i, e in enumerate(edges):
-        step += [e, used[i + 1]]
-    expr = ["case", ["has", m["key"]], step, "#e8e8e8"]
+    interp = ["interpolate", ["linear"], ["get", m["key"]]]
+    for s, c in zip(stops, colors):
+        interp += [s, c]
+    expr = ["case", ["has", m["key"]], interp, "#e8e8e8"]
 
-    legend = []
-    for i, c in enumerate(used):
-        if not edges:
-            lab = "all"
-        elif i == 0:
-            lab = f"< {_fmt(m['fmt'], edges[0])}"
-        elif i == len(used) - 1:
-            lab = f"≥ {_fmt(m['fmt'], edges[-1])}"
-        else:
-            lab = f"{_fmt(m['fmt'], edges[i - 1])} – {_fmt(m['fmt'], edges[i])}"
-        legend.append({"color": c, "label": lab})
-
+    zmin, zmax = stops[0], stops[-1]
+    span = (zmax - zmin) or 1.0
+    colorscale = [[max(0.0, min(1.0, (s - zmin) / span)), c] for s, c in zip(stops, colors)]
+    legend = {"colors": colors, "lo": _fmt(m["fmt"], stops[0]),
+              "mid": _fmt(m["fmt"], stops[n // 2]), "hi": _fmt(m["fmt"], stops[-1])}
     return {"key": m["key"], "label": m["label"], "fmt": m["fmt"],
-            "expr": expr, "edges": edges, "colors": used, "legend": legend}
+            "expr": expr, "colorscale": colorscale, "zmin": zmin, "zmax": zmax,
+            "legend": legend}
 
 
 # ZIP-level drill-down boundaries (OpenDataDE), per state the user tracks.
