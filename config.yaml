@@ -35,6 +35,65 @@ markets:
       county_fips: "095"   # Lucas
       state_abbr: "OH"
 
+  cleveland:
+    name: "Cleveland, OH"
+    metro_name: "Cleveland, OH"
+    # Cuyahoga County investor ZIPs screened for sub-$100K homes that pair
+    # rental cash flow with appreciation (June 2026 screen):
+    #   44128 Lee-Harvard  — ~$85K typical, strong recent appreciation
+    #   44137 Maple Heights — suburb, steady appreciation + solid rents
+    #   44105 Slavic Village — cheapest/highest-cap, rehab-heavy
+    #   44135 West Park/Hopkins — west-side stability
+    #   44109 Old Brooklyn — desirable/gentrifying west side
+    zips:
+      - "44128"
+      - "44137"
+      - "44105"
+      - "44135"
+      - "44109"
+    county:
+      name: "Cuyahoga County, Ohio"
+      fips: "39035"        # full 5-digit county FIPS
+      state_fips: "39"     # Ohio
+      county_fips: "035"   # Cuyahoga
+      state_abbr: "OH"
+
+  des_moines:
+    name: "Des Moines, IA"
+    metro_name: "Des Moines, IA"
+    # Polk County affordable SFR rental ZIPs (best cash-flow fit of the
+    # out-of-Ohio expansion screen, June 2026): South/East/North Des Moines.
+    zips:
+      - "50315"   # South Side
+      - "50316"   # East Side
+      - "50317"   # East / Northeast
+      - "50313"   # North
+      - "50320"   # Southeast
+    county:
+      name: "Polk County, Iowa"
+      fips: "19153"        # full 5-digit county FIPS
+      state_fips: "19"     # Iowa
+      county_fips: "153"   # Polk
+      state_abbr: "IA"
+
+  omaha:
+    name: "Omaha, NE"
+    metro_name: "Omaha, NE"
+    # Douglas County affordable SFR rental ZIPs (South Omaha, North Omaha,
+    # Benson) — the entry-price areas that cash-flow per the June 2026 screen.
+    zips:
+      - "68107"   # South Omaha
+      - "68105"   # South / Midtown
+      - "68111"   # North Omaha
+      - "68104"   # Benson / Northwest
+      - "68134"   # Northwest
+    county:
+      name: "Douglas County, Nebraska"
+      fips: "31055"        # full 5-digit county FIPS
+      state_fips: "31"     # Nebraska
+      county_fips: "055"   # Douglas
+      state_abbr: "NE"
+
   san_francisco:
     name: "San Francisco, CA"
     metro_name: "San Francisco, CA"
@@ -121,6 +180,9 @@ sources:
       fhfa_california: "CASTHPI"     # FHFA All-Transactions HPI, California
       # Optional metro-level FHFA series (quarterly):
       fhfa_toledo_msa: "ATNHPIUS45780Q"
+      fhfa_cleveland_msa: "ATNHPIUS17460Q"   # Cleveland-Elyria, OH MSA
+      fhfa_des_moines_msa: "ATNHPIUS19780Q"  # Des Moines-West Des Moines, IA MSA
+      fhfa_omaha_msa: "ATNHPIUS36540Q"       # Omaha-Council Bluffs, NE-IA MSA
       fhfa_sf_msa: "ATNHPIUS41884Q"
 
   census:
