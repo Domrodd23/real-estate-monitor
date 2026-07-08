@@ -1,10 +1,11 @@
 name: Monthly data refresh
 
-# Runs on the 5th of each month at 08:00 UTC, and on demand via the
-# "Run workflow" button (workflow_dispatch) in the Actions tab.
+# Runs on the 17th of each month at 08:00 UTC (Realtor.com posts between the
+# 1st and ~11th and Zillow around the 16th, so the 17th catches both fresh),
+# and on demand via the "Run workflow" button (workflow_dispatch).
 on:
   schedule:
-    - cron: "0 8 5 * *"
+    - cron: "0 8 17 * *"
   workflow_dispatch: {}
 
 # Allow the job to commit the refreshed /docs back to the repo.

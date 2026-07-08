@@ -127,10 +127,23 @@ sources:
     # Free API key required -> env var CENSUS_API_KEY. See README.
     api_base: "https://api.census.gov/data"
     acs_dataset: "acs/acs5"          # ACS 5-year estimates (county-level reliable)
-    acs_year: 2023                   # most recent 5-yr release; bump when newer drops
+    acs_year: 2024                   # most recent 5-yr release; bump when newer drops
     variables:
       median_household_income: "B19013_001E"
       population: "B01003_001E"
+      # Geographic mobility (moved in the past year) -> map "Movers-in %" metric.
+      # Denominator = population age 1+; the three components are movers who
+      # arrived from a different county, different state, or abroad.
+      mob_pop_1plus: "B07001_001E"
+      mob_in_county_samestate: "B07001_049E"
+      mob_in_state: "B07001_065E"
+      mob_in_abroad: "B07001_081E"
+      # Property-tax rate inputs (top-codes 10001/2000001 masked in mapview)
+      # and denominators for tax-rate + Section 8 density masking.
+      median_re_taxes: "B25103_001E"
+      median_home_value_acs: "B25077_001E"
+      owner_occupied_units: "B25003_002E"
+      renter_households: "B25003_003E"
     # County-to-county migration flows are a SEPARATE ACS dataset, county-level
     # only, annual, released with a lag. Handled in fetch.py / compute.py.
     # NOTE: only the 5-year flows (2016-2020, API year 2020) carry full
@@ -155,6 +168,9 @@ cache:
 output:
   docs_dir: "docs"
   csv_export: "docs/metrics_latest.csv"
+  # Extra states that get ZIP-level drill-down on the national map, beyond the
+  # tracked markets' own states. Must have an entry in mapview.STATE_ZIP_FILES.
+  map_zip_states: ["in", "tx", "nv"]
 
 # -----------------------------------------------------------------------------
 # Analysis settings.

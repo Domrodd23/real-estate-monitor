@@ -81,6 +81,15 @@ SERIES: Dict[str, Dict] = {
         "require": ["/zori/", "County_zori", "uc_sfrcondomfr", "sm_month.csv"],
         "exclude": ["_sa_", "week"],
     },
+    # Zillow's own 12-month home-value growth forecast. ZIP-level ONLY — no
+    # county file exists (verified 404), so the map's county layer shows n/a.
+    "zillow_zhvf_zip": {
+        "label": "ZHVF 1-yr home value forecast (ZIP)",
+        "geography": "zip",
+        "require": ["/zhvf_growth/", "Zip_zhvf_growth", "uc_sfrcondo",
+                    "tier_0.33_0.67", "sm_sa", "_month.csv"],
+        "exclude": ["week"],
+    },
 }
 
 # Last-known-good canonical file URLs on Zillow's CDN. Used ONLY when page
@@ -106,6 +115,9 @@ FALLBACK_URLS: Dict[str, str] = {
     "zillow_zori_county":
         "https://files.zillowstatic.com/research/public_csvs/zori/"
         "County_zori_uc_sfrcondomfr_sm_month.csv",
+    "zillow_zhvf_zip":
+        "https://files.zillowstatic.com/research/public_csvs/zhvf_growth/"
+        "Zip_zhvf_growth_uc_sfrcondo_tier_0.33_0.67_sm_sa_month.csv",
 }
 
 

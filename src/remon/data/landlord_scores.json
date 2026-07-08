@@ -1,0 +1,619 @@
+{
+ "as_of": "2026-07",
+ "method": "score = rc + evict + deposit + cause + notice (each 0-2; 10 = most landlord-friendly). Editorial index for investment screening, not legal advice. Re-verify annually.",
+ "states": {
+  "AL": {
+   "score": 9,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 1,
+   "note": "Preempts RC; no deposit cap; 7-business-day pay-or-quit keeps notice at 1 (iPropertyManagement eviction-process table)."
+  },
+  "AK": {
+   "score": 7,
+   "rc": 1,
+   "evict": 2,
+   "deposit": 1,
+   "cause": 2,
+   "notice": 1,
+   "note": "No RC preemption statute but none enacted (NAA/Commoner Law); deposit capped 2 months when rent<=$2,000; fast FED process."
+  },
+  "AZ": {
+   "score": 8,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 0,
+   "cause": 2,
+   "notice": 2,
+   "note": "Preempts RC; 1.5-month deposit cap scores 0; 5-day pay-or-quit, no late-fee cap."
+  },
+  "AR": {
+   "score": 8,
+   "rc": 2,
+   "evict": 1,
+   "deposit": 1,
+   "cause": 2,
+   "notice": 2,
+   "note": "Preempts RC; 2-month deposit cap (owners of >5 units); 6-8 wk eviction (iPM)."
+  },
+  "CA": {
+   "score": 3,
+   "rc": 0,
+   "evict": 1,
+   "deposit": 0,
+   "cause": 0,
+   "notice": 2,
+   "note": "AB 1482 statewide 5%+CPI cap + just cause; AB 12 (7/2024) 1-month deposit cap; 3-day pay-or-quit and no statutory late-fee cap keep notice at 2; 5-8 wk typical eviction."
+  },
+  "CO": {
+   "score": 4,
+   "rc": 2,
+   "evict": 1,
+   "deposit": 1,
+   "cause": 0,
+   "notice": 0,
+   "note": "Still preempts local RC (repeal failed), but HB24-1098 statewide for-cause eviction (PolicyLink); 2-month deposit cap (2023); 10-day cure + $50/5% late-fee cap + 7-day grace = heavy notice burden."
+  },
+  "CT": {
+   "score": 6,
+   "rc": 1,
+   "evict": 1,
+   "deposit": 1,
+   "cause": 2,
+   "notice": 1,
+   "note": "No RC ban; mandatory fair-rent commissions in towns >25k can roll back rents (scored 1); 2-month deposit cap (1 month for 62+); 9-day late-fee grace."
+  },
+  "DE": {
+   "score": 5,
+   "rc": 1,
+   "evict": 1,
+   "deposit": 0,
+   "cause": 2,
+   "notice": 1,
+   "note": "No preemption, none enacted; 1-month deposit cap on year+ leases; 5% late-fee cap + 5-day grace."
+  },
+  "FL": {
+   "score": 10,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 2,
+   "note": "2023 preemption law (SB 102) killed local RC referenda; no deposit cap; 3-day pay-or-quit; 2-10 wk eviction, uncontested nonpayment typically <6 wk."
+  },
+  "GA": {
+   "score": 9,
+   "rc": 2,
+   "evict": 1,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 2,
+   "note": "Preempts RC; no deposit cap; generous late-fee allowance ($20 or 20%); Atlanta court backlog puts eviction at 1-3 months (iPM)."
+  },
+  "HI": {
+   "score": 5,
+   "rc": 1,
+   "evict": 1,
+   "deposit": 0,
+   "cause": 2,
+   "notice": 1,
+   "note": "No preemption, none enacted; 1-month deposit cap (+1-month pet); 8% late-fee cap + 5-day grace; 1-4 month eviction."
+  },
+  "ID": {
+   "score": 10,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 2,
+   "note": "Preempts RC; no deposit cap; 3-day notice; expedited nonpayment eviction (1 wk-2 mo)."
+  },
+  "IL": {
+   "score": 9,
+   "rc": 2,
+   "evict": 1,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 2,
+   "note": "Rent Control Preemption Act 1997 still in force per LawDistrict/NAA 2026 (one source claimed 2024 repeal - not corroborated); no statewide deposit cap (Chicago/Cook ordinances apply locally); Cook County eviction slow (2 wk-5 mo)."
+  },
+  "IN": {
+   "score": 9,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 1,
+   "note": "Preempts RC; no deposit cap; 10-day pay-or-quit keeps notice at 1."
+  },
+  "IA": {
+   "score": 8,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 1,
+   "cause": 2,
+   "notice": 1,
+   "note": "Preempts RC; 2-month deposit cap; statutory per-day late-fee caps ($60-$100/mo max) score 1; 3-day notice, fast courts."
+  },
+  "KS": {
+   "score": 8,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 0,
+   "cause": 2,
+   "notice": 2,
+   "note": "Preempts RC; 1-month deposit cap (1.5 furnished) scores 0; 3-day notice."
+  },
+  "KY": {
+   "score": 9,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 1,
+   "note": "Preempts RC; no deposit cap; 3-6 wk eviction; 7-day pay-or-quit + 10% late-fee cap in URLTA cities = 1."
+  },
+  "LA": {
+   "score": 10,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 2,
+   "note": "Preempts RC; no deposit cap; 5-day notice; 2-5 wk eviction, among fastest."
+  },
+  "ME": {
+   "score": 4,
+   "rc": 0,
+   "evict": 1,
+   "deposit": 1,
+   "cause": 2,
+   "notice": 0,
+   "note": "Portland + South Portland active rent control (LawDistrict); 2-month deposit cap; 4% late-fee cap + mandatory 15-day grace = heaviest notice burden in US (Hemlane)."
+  },
+  "MD": {
+   "score": 4,
+   "rc": 0,
+   "evict": 1,
+   "deposit": 0,
+   "cause": 2,
+   "notice": 1,
+   "note": "Active county rent stabilization: Takoma Park, Montgomery Co (2024), Prince George's Co; deposit cap cut to 1 month eff. 10/2024; 5% late-fee cap + 10-day notice before nonpayment filing."
+  },
+  "MA": {
+   "score": 5,
+   "rc": 2,
+   "evict": 1,
+   "deposit": 0,
+   "cause": 2,
+   "notice": 0,
+   "note": "RC banned by 1994 ballot initiative; 1-month deposit cap with strict treble-damage penalties; 14-day cure + no late fee until 30 days late = 0 notice."
+  },
+  "MI": {
+   "score": 7,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 0,
+   "cause": 2,
+   "notice": 1,
+   "note": "Preempts RC; 1.5-month deposit cap; 7-day notice; 2 wk-2 mo eviction."
+  },
+  "MN": {
+   "score": 5,
+   "rc": 0,
+   "evict": 1,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 0,
+   "note": "St. Paul 3% rent stabilization active for pre-2005 buildings (post-2004 construction permanently exempted by 5/2025 council vote, eff. 6/13/2025; Minn. Stat. 471.9996 allows RC by referendum) so rc=0; no deposit cap; 14-day nonpayment notice (2023) + 8% late-fee cap = 0 notice."
+  },
+  "MS": {
+   "score": 10,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 2,
+   "note": "Preempts RC; no deposit cap; 3-day notice; 2-8 wk eviction."
+  },
+  "MO": {
+   "score": 8,
+   "rc": 2,
+   "evict": 1,
+   "deposit": 1,
+   "cause": 2,
+   "notice": 2,
+   "note": "Preempts RC; 2-month deposit cap; no notice statutorily required before nonpayment filing; 1-3 mo eviction (St. Louis/KC dockets)."
+  },
+  "MT": {
+   "score": 10,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 2,
+   "note": "RC preemption enacted 2023 (NAA); no deposit cap; 3-day nonpayment notice; 10% late-fee cap is permissive."
+  },
+  "NE": {
+   "score": 7,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 0,
+   "cause": 2,
+   "notice": 1,
+   "note": "Preempts RC (LawDistrict); 1-month deposit cap; 7-day notice; expedited eviction."
+  },
+  "NV": {
+   "score": 8,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 1,
+   "cause": 2,
+   "notice": 1,
+   "note": "No local RC and treated as preempted/Dillon (Commoner Law lists NV as preempt; LawDistrict as Dillon-barred) - either way no local RC possible, rc=2; 3-month deposit cap; summary eviction 1-6 wks; 5% late-fee cap + 3-day grace."
+  },
+  "NH": {
+   "score": 4,
+   "rc": 2,
+   "evict": 1,
+   "deposit": 0,
+   "cause": 0,
+   "notice": 1,
+   "note": "No local RC authority; BUT RSA 540 requires good cause for eviction since 2015 (PolicyLink/Wikipedia) so cause=0; deposit capped at greater of 1 month/$100."
+  },
+  "NJ": {
+   "score": 2,
+   "rc": 0,
+   "evict": 0,
+   "deposit": 0,
+   "cause": 0,
+   "notice": 2,
+   "note": "100+ municipal rent control ordinances; Anti-Eviction Act 1974 statewide just cause (PolicyLink); 1.5-month deposit cap; 3 wk-4 mo eviction with lockout backlogs; no pay-or-quit required for nonpayment filing keeps notice at 2."
+  },
+  "NM": {
+   "score": 9,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 1,
+   "cause": 2,
+   "notice": 2,
+   "note": "Statutory RC prohibition (NMSA 47-8-15.2); deposit capped 1 month only for leases <1 yr (no cap on annual leases) = 1; 3-day notice, 2-7 wk eviction."
+  },
+  "NY": {
+   "score": 0,
+   "rc": 0,
+   "evict": 0,
+   "deposit": 0,
+   "cause": 0,
+   "notice": 0,
+   "note": "HSTPA 2019 + Good Cause Eviction Law 2024 (immediate in NYC, opt-in upstate - PolicyLink); 1-month deposit cap; $50/5% late-fee cap + 5-day grace + 14-day notice; 1-5 mo eviction, NYC routinely >12 wks."
+  },
+  "NC": {
+   "score": 6,
+   "rc": 2,
+   "evict": 1,
+   "deposit": 1,
+   "cause": 2,
+   "notice": 0,
+   "note": "Preempts RC; deposit cap 1.5 mo (m2m)/2 mo (longer) = 1; $15-or-5% late-fee cap + 5-day grace + 10-day pay-or-quit = 0 notice."
+  },
+  "ND": {
+   "score": 8,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 0,
+   "cause": 2,
+   "notice": 2,
+   "note": "Preempts RC; 1-month deposit cap; 3-day notice; 2-8 wk eviction."
+  },
+  "OH": {
+   "score": 9,
+   "rc": 2,
+   "evict": 1,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 2,
+   "note": "RC preemption enacted 2022 (HB 430, eff. 9/22/2022); no deposit cap; 3-day notice; 5-8 wk eviction."
+  },
+  "OK": {
+   "score": 10,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 2,
+   "note": "Preempts RC; no deposit cap; 5-day notice; 2-7 wk eviction."
+  },
+  "OR": {
+   "score": 4,
+   "rc": 0,
+   "evict": 1,
+   "deposit": 2,
+   "cause": 0,
+   "notice": 1,
+   "note": "SB 608 (2019) statewide rent cap (7%+CPI, amended 2023 to max 10%; 2026 cap 9.5%) + just cause; no statutory deposit cap = 2; 72/144-hr notice but 4-8 day grace + 5% late-fee cap = 1."
+  },
+  "PA": {
+   "score": 5,
+   "rc": 1,
+   "evict": 1,
+   "deposit": 1,
+   "cause": 1,
+   "notice": 1,
+   "note": "No preemption, no local RC; Philadelphia good-cause ordinance = partial (cause 1); 2-month deposit cap in year 1; 10-day notice."
+  },
+  "RI": {
+   "score": 5,
+   "rc": 1,
+   "evict": 1,
+   "deposit": 0,
+   "cause": 2,
+   "notice": 1,
+   "note": "No preemption, none enacted; 1-month deposit cap; 15-day grace before nonpayment notice; 1-4 mo eviction."
+  },
+  "SC": {
+   "score": 9,
+   "rc": 2,
+   "evict": 1,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 2,
+   "note": "Preempts RC; no deposit cap; 5-day notice; 4-9 wk eviction."
+  },
+  "SD": {
+   "score": 7,
+   "rc": 2,
+   "evict": 1,
+   "deposit": 0,
+   "cause": 2,
+   "notice": 2,
+   "note": "Preempts RC; 1-month deposit cap; 3-day notice; 5 wk-3 mo eviction."
+  },
+  "TN": {
+   "score": 8,
+   "rc": 2,
+   "evict": 1,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 1,
+   "note": "Preempts RC; no deposit cap; 14-day nonpayment cure in URLTA counties + 10% late-fee cap + 5-day grace = 1; 4-8 wk eviction."
+  },
+  "TX": {
+   "score": 10,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 2,
+   "note": "Preempts RC; no deposit cap; 3-day notice, 2-day grace, 12% late-fee cap is permissive; uncontested nonpayment ~3-5 wks."
+  },
+  "UT": {
+   "score": 10,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 2,
+   "note": "Preempts RC; no deposit cap; 3-day notice and expedited possession orders - among the fastest evictions."
+  },
+  "VT": {
+   "score": 5,
+   "rc": 1,
+   "evict": 0,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 0,
+   "note": "No preemption (Burlington just-cause charter vetoed); no deposit cap; but 4-7 month evictions (iPM, slowest in US) and 14-day cure = 0s."
+  },
+  "VA": {
+   "score": 8,
+   "rc": 2,
+   "evict": 1,
+   "deposit": 1,
+   "cause": 2,
+   "notice": 2,
+   "note": "Dillon rule bars local RC (LawDistrict); 2-month deposit cap; 5-day pay-or-quit + 10% late-fee cap still light; 2-4 mo total but uncontested ~6-8 wks."
+  },
+  "WA": {
+   "score": 3,
+   "rc": 0,
+   "evict": 1,
+   "deposit": 2,
+   "cause": 0,
+   "notice": 0,
+   "note": "HB 1217 (2025) statewide rent stabilization, lesser of 7%+CPI or 10% (NAA Fall 2025 Outlook); just cause since 2021; no statewide deposit cap (Seattle caps locally) = 2; 14-day notice + 5-day grace + late-fee limits = 0."
+  },
+  "WV": {
+   "score": 10,
+   "rc": 2,
+   "evict": 2,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 2,
+   "note": "Preempts RC (Commoner Law); no deposit cap; NO notice required before nonpayment filing; fast wrongful-occupation process."
+  },
+  "WI": {
+   "score": 8,
+   "rc": 2,
+   "evict": 1,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 1,
+   "note": "Preempts RC; no deposit cap; 5-day notice but 5% late-fee cap = 1; 2-4 mo eviction."
+  },
+  "WY": {
+   "score": 9,
+   "rc": 1,
+   "evict": 2,
+   "deposit": 2,
+   "cause": 2,
+   "notice": 2,
+   "note": "No RC anywhere (preemption status disputed between sources; scored 1 conservatively); no deposit cap; 3-day notice; 3-4 wk eviction, fastest tier."
+  },
+  "DC": {
+   "score": 0,
+   "rc": 0,
+   "evict": 0,
+   "deposit": 0,
+   "cause": 0,
+   "notice": 0,
+   "note": "Rental Housing Act rent stabilization (pre-1976 buildings); eviction only for cause; 1-month deposit cap; 30-day nonpayment notice; 2-8 month evictions."
+  }
+ },
+ "rent_control_cities": [
+  {
+   "city": "New York",
+   "st": "NY"
+  },
+  {
+   "city": "Kingston",
+   "st": "NY"
+  },
+  {
+   "city": "Albany",
+   "st": "NY"
+  },
+  {
+   "city": "White Plains (Westchester Co ETPA)",
+   "st": "NY"
+  },
+  {
+   "city": "Newark",
+   "st": "NJ"
+  },
+  {
+   "city": "Jersey City",
+   "st": "NJ"
+  },
+  {
+   "city": "Hoboken",
+   "st": "NJ"
+  },
+  {
+   "city": "Paterson",
+   "st": "NJ"
+  },
+  {
+   "city": "Elizabeth",
+   "st": "NJ"
+  },
+  {
+   "city": "Atlantic City",
+   "st": "NJ"
+  },
+  {
+   "city": "San Francisco",
+   "st": "CA"
+  },
+  {
+   "city": "Los Angeles",
+   "st": "CA"
+  },
+  {
+   "city": "Oakland",
+   "st": "CA"
+  },
+  {
+   "city": "Berkeley",
+   "st": "CA"
+  },
+  {
+   "city": "San Jose",
+   "st": "CA"
+  },
+  {
+   "city": "Santa Monica",
+   "st": "CA"
+  },
+  {
+   "city": "West Hollywood",
+   "st": "CA"
+  },
+  {
+   "city": "Beverly Hills",
+   "st": "CA"
+  },
+  {
+   "city": "East Palo Alto",
+   "st": "CA"
+  },
+  {
+   "city": "Hayward",
+   "st": "CA"
+  },
+  {
+   "city": "Inglewood",
+   "st": "CA"
+  },
+  {
+   "city": "Long Beach",
+   "st": "CA"
+  },
+  {
+   "city": "Santa Ana",
+   "st": "CA"
+  },
+  {
+   "city": "Mountain View",
+   "st": "CA"
+  },
+  {
+   "city": "Richmond",
+   "st": "CA"
+  },
+  {
+   "city": "Alameda",
+   "st": "CA"
+  },
+  {
+   "city": "Antioch",
+   "st": "CA"
+  },
+  {
+   "city": "Bell Gardens",
+   "st": "CA"
+  },
+  {
+   "city": "Pomona",
+   "st": "CA"
+  },
+  {
+   "city": "Culver City",
+   "st": "CA"
+  },
+  {
+   "city": "Pasadena",
+   "st": "CA"
+  },
+  {
+   "city": "Washington",
+   "st": "DC"
+  },
+  {
+   "city": "St. Paul",
+   "st": "MN"
+  },
+  {
+   "city": "Portland",
+   "st": "ME"
+  },
+  {
+   "city": "South Portland",
+   "st": "ME"
+  },
+  {
+   "city": "Takoma Park",
+   "st": "MD"
+  },
+  {
+   "city": "Montgomery County",
+   "st": "MD"
+  },
+  {
+   "city": "Prince George's County",
+   "st": "MD"
+  }
+ ]
+}

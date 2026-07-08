@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 from remon.config import load_config  # noqa: E402
 from remon.logging_setup import get_logger  # noqa: E402
-from remon.sources import census, fred, redfin, zillow  # noqa: E402
+from remon.sources import bls, census, fred, irs, realtor, redfin, zillow  # noqa: E402
 
 log = get_logger("fetch")
 
@@ -49,13 +49,22 @@ def fetch_all(source: str = "all") -> None:
         paths = census.fetch_census(config)
         census.summary(config, paths)
 
+    if source in ("all", "realtor"):
+        realtor.fetch_realtor(config)
+
+    if source in ("all", "irs"):
+        irs.fetch_irs(config)
+
+    if source in ("all", "bls"):
+        bls.fetch_bls(config)  # best-effort; committed data files are primary
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fetch raw housing data.")
     parser.add_argument(
         "--source",
         default="all",
-        choices=["all", "zillow", "redfin", "fred", "census"],
+        choices=["all", "zillow", "redfin", "fred", "census", "realtor", "irs", "bls"],
         help="Which source to fetch (default: all).",
     )
     args = parser.parse_args()

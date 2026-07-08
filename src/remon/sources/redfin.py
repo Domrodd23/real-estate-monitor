@@ -46,6 +46,9 @@ REQUIRED_COLS = [
 ]
 PROPERTY_TYPE = "All Residential"
 
+# Below this many closed sales a county's monthly medians are noise.
+MIN_HOMES_SOLD = 10
+
 
 def _discover_url(html: str) -> Optional[str]:
     hits = re.findall(r"https://[^\"' <>]*redfin-public-data[^\"' <>]*county_market_tracker[^\"' <>]*\.gz", html)
@@ -133,6 +136,54 @@ def load_counties(path: Path, config: Config) -> pd.DataFrame:
     log.info("[redfin] %d county-month rows for %d tracked counties",
              len(sub), sub["region"].nunique())
     return sub
+
+
+def load_national_sale_metrics(config: Config) -> Optional[pd.DataFrame]:
+    """Latest-month sale-side metrics for EVERY US county (feeds the map).
+
+    Returns a frame indexed by Redfin's region name ("Lucas County, OH" — the
+    same format as the map's county names) with median_sale_price,
+    sold_above_list_pct, months_supply. Counties with fewer than
+    MIN_HOMES_SOLD closed sales in the month are masked as no-data.
+    Streams the big cached tracker with only the needed columns.
+    """
+    path = last_cached(config.raw_dir, CACHE_NAME, "gz")
+    if not path:
+        return None
+    keep_cols = ["period_end", "region_type", "region", "property_type",
+                 "median_sale_price", "sold_above_list", "months_of_supply",
+                 "homes_sold"]
+    kept: List[pd.DataFrame] = []
+    for chunk in pd.read_csv(
+        path, sep="\t", compression="gzip", low_memory=False, chunksize=400_000
+    ):
+        chunk.columns = [c.strip().lower() for c in chunk.columns]
+        mask = (chunk["region_type"] == "county") & (chunk["property_type"] == PROPERTY_TYPE)
+        if mask.any():
+            kept.append(chunk.loc[mask, keep_cols].copy())
+    if not kept:
+        return None
+    df = pd.concat(kept, ignore_index=True)
+    df["period_end"] = pd.to_datetime(df["period_end"], errors="coerce")
+    # Drop undated rows BEFORE deduping — NaT sorts last, so keep='last' would
+    # otherwise prefer a malformed row over every valid month.
+    df = df.dropna(subset=["period_end"])
+    if df.empty:
+        return None
+    df = df.sort_values("period_end").drop_duplicates("region", keep="last")
+    df = df.set_index(df["region"].astype(str))
+
+    out = pd.DataFrame(index=df.index)
+    out["median_sale_price"] = pd.to_numeric(df["median_sale_price"], errors="coerce").round(0)
+    out["sold_above_list_pct"] = (pd.to_numeric(df["sold_above_list"], errors="coerce") * 100).round(1)
+    out["months_supply"] = pd.to_numeric(df["months_of_supply"], errors="coerce").round(1)
+    sold = pd.to_numeric(df["homes_sold"], errors="coerce")
+    thin = sold.isna() | (sold < MIN_HOMES_SOLD)
+    out.loc[thin, ["median_sale_price", "sold_above_list_pct", "months_supply"]] = pd.NA
+    out = out[~out.index.duplicated()]
+    log.info("[redfin] national sale metrics: %d counties (latest %s, %d masked as thin)",
+             len(out), df["period_end"].max().date(), int(thin.sum()))
+    return out
 
 
 def summary(config: Config, paths: Dict[str, Optional[Path]]) -> None:

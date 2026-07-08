@@ -12,7 +12,7 @@ from typing import Dict, Optional
 import pandas as pd
 
 from ..config import Config, get_api_key
-from ..http import DownloadError, cache_path, find_cached, get_json, last_cached
+from ..http import DownloadError, cache_path, download, find_cached, get_json, last_cached
 from ..logging_setup import get_logger
 from ..validate import validate_frame
 
@@ -29,15 +29,91 @@ def _clean(series: pd.Series) -> pd.Series:
 
 def fetch_census(config: Config) -> Dict[str, Optional[Path]]:
     raw_dir = config.raw_dir
+    # The PEP county file is a public CSV — no key needed, fetch unconditionally.
+    pep = _fetch_pep(config, raw_dir)
     key = get_api_key("census")
     if not key:
-        log.error("CENSUS_API_KEY not set — skipping Census.")
-        return {"census_acs": None, "census_migration": None}
+        log.error("CENSUS_API_KEY not set — skipping keyed Census endpoints "
+                  "(PEP county file still fetched).")
+        return {"census_acs": None, "census_migration": None,
+                "census_pep_county": pep}
     return {
         "census_acs": _fetch_acs(config, key, raw_dir),
         "census_migration": _fetch_migration(config, key, raw_dir),
         "census_acs_national": _fetch_acs_national(config, key, raw_dir),
+        "census_acs_zcta": _fetch_acs_zcta(config, key, raw_dir),
+        "census_pep_county": pep,
     }
+
+
+# Census Population Estimates: county components of change (net domestic
+# migration). Annual vintage — bump the path each spring when the new file drops.
+PEP_URL = ("https://www2.census.gov/programs-surveys/popest/datasets/"
+           "2020-2025/counties/totals/co-est2025-alldata.csv")
+
+
+def _fetch_pep(config: Config, raw_dir: Path) -> Optional[Path]:
+    """County net domestic migration (rate per 1,000) from Census PEP. No key needed."""
+    cache_name = "census_pep_county"
+    fresh = find_cached(raw_dir, cache_name, "csv", config.max_age_days)
+    if fresh:
+        log.info("[census_pep_county] reusing fresh cache: %s", fresh.name)
+        return fresh
+    try:
+        dest = cache_path(raw_dir, cache_name, "csv")
+        download(PEP_URL, dest)  # binary: the file has latin-1 county names
+        log.info("[census_pep_county] cached %s (%.1f MB)", dest.name,
+                 dest.stat().st_size / 1e6)
+        return dest
+    except (DownloadError, OSError) as exc:
+        log.error("[census_pep_county] fetch failed: %s", exc)
+        stale = last_cached(raw_dir, cache_name, "csv")
+        if stale:
+            log.warning("[census_pep_county] using STALE cache: %s", stale.name)
+        return stale
+
+
+def _fetch_acs_zcta(config: Config, key: str, raw_dir: Path) -> Optional[Path]:
+    """ACS income + population for EVERY US ZCTA (ZIP-level map metrics)."""
+    cache_name = "census_acs_zcta"
+    fresh = find_cached(raw_dir, cache_name, "csv", config.max_age_days)
+    if fresh:
+        log.info("[census_acs_zcta] reusing fresh cache: %s", fresh.name)
+        return fresh
+
+    src = config.sources["census"]
+    base, ds, yr = src["api_base"], src["acs_dataset"], src["acs_year"]
+    variables: Dict[str, str] = src["variables"]
+    get_vars = ",".join(list(variables.values()))
+    try:
+        data = get_json(
+            f"{base}/{yr}/{ds}",
+            params={"get": get_vars, "for": "zip code tabulation area:*", "key": key},
+        )
+        hdr, *recs = data
+        rows = []
+        for rec in recs:
+            d = dict(zip(hdr, rec))
+            # Direct indexing on purpose: a renamed/dropped geo header must raise
+            # KeyError (caught below → stale-cache fallback), never cache garbage.
+            row = {"zcta": str(d["zip code tabulation area"]).zfill(5)}
+            for logical, code in variables.items():
+                row[logical] = d.get(code)
+            rows.append(row)
+        df = pd.DataFrame(rows)
+        for logical in variables:
+            df[logical] = _clean(df[logical])
+        validate_frame(df, "Census ACS ZCTA", required_columns=["zcta"])
+        dest = cache_path(raw_dir, cache_name, "csv")
+        df.to_csv(dest, index=False)
+        log.info("[census_acs_zcta] %d ZCTAs cached (ACS %s)", len(df), yr)
+        return dest
+    except (DownloadError, KeyError, ValueError) as exc:
+        log.error("[census_acs_zcta] fetch failed: %s", exc)
+        stale = last_cached(raw_dir, cache_name, "csv")
+        if stale:
+            log.warning("[census_acs_zcta] using STALE cache: %s", stale.name)
+        return stale
 
 
 def _fetch_acs_national(config: Config, key: str, raw_dir: Path) -> Optional[Path]:

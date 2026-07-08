@@ -8,154 +8,548 @@
 <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://unpkg.com/pmtiles@3.2.1/dist/pmtiles.js"></script>
 <style>
-  :root { --accent:#1f6feb; --ink:#1b1f23; --muted:#5b6670; --line:#e3e7eb; }
+  :root { --accent:#1f6feb; --ink:#1b1f23; --muted:#5b6670; --line:#e3e7eb;
+          --card:0 2px 10px rgba(0,0,0,.15); }
   * { box-sizing:border-box; }
-  body { margin:0; color:var(--ink); background:#fff;
+  [hidden] { display:none !important; }
+  html, body { margin:0; height:100%; overflow:hidden; }
+  body { color:var(--ink); background:#fff;
          font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-  .topbar { display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; padding:16px 22px 4px; }
-  .topbar h1 { font-size:1.35rem; margin:0; }
-  .topbar a { color:var(--accent); text-decoration:none; font-size:.9rem; }
+
+  /* ---- app shell: slim topbar + full-bleed map ---- */
+  .topbar { position:fixed; top:0; left:0; right:0; height:48px; z-index:10;
+            display:flex; align-items:center; gap:14px; padding:0 16px;
+            background:#fff; border-bottom:1px solid var(--line); }
+  .topbar h1 { font-size:1.05rem; margin:0; white-space:nowrap; }
+  .topbar a { color:var(--accent); text-decoration:none; font-size:.88rem; white-space:nowrap; }
   .topbar a:hover { text-decoration:underline; }
-  .topbar .gen { color:var(--muted); font-size:.8rem; margin-left:auto; }
+  .topbar .gen { color:var(--muted); font-size:.78rem; margin-left:auto; }
   .reset { border:1px solid var(--line); background:#fff; color:#33404d; border-radius:7px;
-           padding:5px 11px; font-size:.82rem; cursor:pointer; }
+           padding:5px 11px; font-size:.82rem; cursor:pointer; white-space:nowrap; }
   .reset:hover { border-color:var(--accent); color:var(--accent); }
-  .pillbar { display:flex; gap:8px; flex-wrap:wrap; padding:10px 22px 6px; }
-  .pill { border:1px solid var(--line); background:#f6f8fa; color:#33404d; border-radius:999px;
-          padding:7px 15px; font-size:.85rem; font-weight:500; cursor:pointer;
-          transition:background .15s, color .15s, border-color .15s, box-shadow .15s; }
-  .pill:hover { border-color:var(--accent); color:var(--accent); }
-  .pill.active { background:var(--accent); border-color:var(--accent); color:#fff;
-                 box-shadow:0 1px 5px rgba(31,111,235,.35); }
-  .legend { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:2px 22px 8px; font-size:.76rem; color:var(--muted); }
-  .legend .lt { font-weight:600; color:#33404d; }
-  .legend .lv { font-variant-numeric:tabular-nums; }
-  .legend .lbar { width:260px; height:12px; border-radius:7px; display:inline-block;
-                  border:1px solid rgba(0,0,0,0.12); }
-  .mapwrap { padding:0 22px; }
-  #map { width:100%; height:76vh; min-height:480px; border:1px solid var(--line);
-         border-radius:10px; box-shadow:0 1px 6px rgba(0,0,0,.05); overflow:hidden; }
+
+  #map { position:fixed; top:48px; left:0; right:0; bottom:0; }
+  .veil { position:fixed; top:48px; left:0; right:0; bottom:0; z-index:4;
+          background:#f6f8fa; pointer-events:none; opacity:1; transition:opacity .5s; }
+
+  /* ---- floating control card (search + chips + metric pills) ---- */
+  .ctl-card { position:fixed; top:60px; left:12px; z-index:7; width:340px;
+              max-width:calc(100vw - 24px); background:#fff; border-radius:10px;
+              box-shadow:var(--card); padding:10px; }
+  .searchwrap { position:relative; }
+  #searchBox { width:100%; padding:9px 12px; border:1px solid var(--line); border-radius:8px;
+               font-size:.92rem; outline:none; }
+  #searchBox:focus { border-color:var(--accent); box-shadow:0 0 0 2px rgba(31,111,235,.15); }
+  .sresults { position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:7;
+              background:#fff; border:1px solid var(--line); border-radius:8px;
+              box-shadow:var(--card); list-style:none; margin:0; padding:4px;
+              max-height:280px; overflow-y:auto; }
+  .sresults li { padding:7px 10px; border-radius:6px; font-size:.88rem; cursor:pointer;
+                 display:flex; justify-content:space-between; gap:8px; }
+  .sresults li .sub { color:var(--muted); font-size:.78rem; }
+  .sresults li.active, .sresults li:hover { background:#eef4ff; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .chip { border:1px solid var(--line); background:#f6f8fa; color:#33404d; border-radius:999px;
+          padding:4px 11px; font-size:.8rem; cursor:pointer; }
+  .chip:hover { border-color:var(--accent); color:var(--accent); }
+  .mgroups { margin-top:8px; max-height:calc(100vh - 330px); overflow-y:auto; }
+  .mghead { width:100%; display:flex; justify-content:space-between; align-items:center;
+            border:none; background:none; padding:8px 6px 4px; font-size:.74rem; font-weight:700;
+            color:#33404d; cursor:pointer; text-transform:uppercase; letter-spacing:.04em; }
+  .mghead .car { color:var(--muted); transition:transform .15s; }
+  .mgroup.closed .mglist { display:none; }
+  .mgroup.closed .car { transform:rotate(-90deg); }
+  .mrow { display:flex; width:100%; align-items:center; gap:9px; border:none; background:none;
+          padding:7px 8px; border-radius:7px; font-size:.87rem; color:#33404d;
+          cursor:pointer; text-align:left; }
+  .mrow:hover { background:#f0f4fa; color:var(--accent); }
+  .mrow.active { background:var(--accent); color:#fff; font-weight:600; }
+  .mrow .dot { width:8px; height:8px; border-radius:50%; border:2px solid #b6bfc9; flex:0 0 auto; }
+  .mrow.active .dot { border-color:#fff; background:#fff; }
+
+  /* ---- legend card ---- */
+  .legend-card { position:fixed; bottom:26px; left:12px; z-index:5; width:300px;
+                 max-width:calc(100vw - 24px); background:#fff; border-radius:10px;
+                 box-shadow:var(--card); padding:10px 12px; font-size:.78rem; color:var(--muted); }
+  .lhead { display:flex; align-items:center; justify-content:space-between; gap:6px; }
+  .lt { font-weight:600; color:#33404d; font-size:.85rem; }
+  .ltag { margin-left:auto; font-size:.68rem; color:var(--muted); background:#f0f2f4;
+          border-radius:999px; padding:2px 8px; white-space:nowrap; }
+  .ltag:empty { display:none; }
+  .ibtn { border:none; background:none; color:var(--muted); font-size:.95rem; cursor:pointer;
+          padding:2px 4px; border-radius:5px; }
+  .ibtn:hover { color:var(--accent); background:#eef4ff; }
+  .ldesc { margin-top:2px; line-height:1.35; }
+  .lrow { display:flex; align-items:center; gap:8px; margin-top:7px; }
+  .lv { font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .lbar { position:relative; flex:1; height:12px; border-radius:7px;
+          border:1px solid rgba(0,0,0,0.12); }
+  .ltick { display:none; position:absolute; top:-4px; bottom:-4px; width:2px;
+           background:#1b1f23; border-radius:1px; transition:left .06s linear; }
+  .lzones { position:absolute; inset:-6px 0; display:flex; }
+  .lzones button { flex:1; cursor:pointer; background:none; border:none; padding:0; }
+  .lzones button:hover { background:rgba(255,255,255,.35); }
+  .lzones button.on { outline:2px solid var(--accent); outline-offset:-2px; border-radius:4px; }
+  .lfoot { display:flex; align-items:center; justify-content:space-between; margin-top:7px; }
+  .lna i { display:inline-block; width:12px; height:12px; background:#d4d4d4; border-radius:3px;
+           border:1px solid rgba(0,0,0,0.12); vertical-align:-2px; margin-right:4px; }
+  .rchip { border:1px solid var(--accent); background:#eef4ff; color:var(--accent);
+           border-radius:999px; padding:2px 9px; font-size:.75rem; cursor:pointer; }
+  .infopop { position:absolute; bottom:calc(100% + 8px); left:0; width:290px;
+             background:#fff; border-radius:10px; box-shadow:var(--card); padding:10px 12px;
+             line-height:1.45; z-index:8; }
+
+  /* ---- stats panel (desktop card / mobile bottom sheet) ---- */
+  .panel { position:fixed; top:60px; right:12px; z-index:6; width:300px;
+           max-height:calc(100vh - 140px); overflow-y:auto; background:#fff;
+           border-radius:10px; box-shadow:var(--card);
+           opacity:0; transform:translateX(12px); pointer-events:none; visibility:hidden;
+           transition:opacity .25s ease, transform .25s ease, visibility .25s; }
+  .panel.open { opacity:1; transform:none; pointer-events:auto; visibility:visible; }
+  .phead { display:flex; align-items:flex-start; justify-content:space-between;
+           padding:12px 14px 8px; }
+  .phead h2 { font-size:1rem; margin:0; line-height:1.3; }
+  .badge { display:inline-block; margin-top:4px; background:#1b1f23; color:#fff;
+           font-size:.66rem; font-weight:700; letter-spacing:.06em; border-radius:4px;
+           padding:2px 7px; }
+  .pclose { border:none; background:none; color:var(--muted); font-size:1.05rem;
+            cursor:pointer; padding:2px 6px; border-radius:6px; }
+  .pclose:hover { color:var(--ink); background:#f0f2f4; }
+  .prows { padding:0 14px 4px; }
+  .prow { padding:7px 8px; border-radius:7px; margin:0 -8px; }
+  .prow.active { background:#eef4ff; }
+  .prow .plabel { display:block; color:var(--muted); font-size:.76rem; }
+  .prow .pval { font-size:1.02rem; font-weight:600; font-variant-numeric:tabular-nums; }
+  .prow .ppct { display:block; color:var(--muted); font-size:.74rem; margin-top:1px; }
+  .pactions { display:flex; gap:8px; padding:8px 14px 14px; }
+  .pbtn { flex:1; border:1px solid var(--line); background:#fff; color:#33404d;
+          border-radius:8px; padding:8px 6px; font-size:.82rem; font-weight:500; cursor:pointer; }
+  .pbtn:hover { border-color:var(--accent); color:var(--accent); }
+  .pbtn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .pbtn.primary:hover { background:#175bc4; color:#fff; }
+
+  /* ---- first-run coach mark ---- */
+  .coach { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); z-index:6;
+           background:rgba(27,31,35,.88); color:#fff; font-size:.9rem; border-radius:999px;
+           padding:10px 18px; pointer-events:none; opacity:0; transition:opacity .6s;
+           width:max-content; max-width:calc(100vw - 32px); text-align:center; }
+  .coach.show { opacity:1; }
+
   .maplibregl-popup-content { font-size:12.5px; padding:8px 11px; border-radius:7px; }
-  .note { color:var(--muted); font-size:.82rem; padding:12px 22px 34px; max-width:1000px; line-height:1.5; }
+  .tiprows { display:grid; grid-template-columns:auto auto; gap:2px 14px; margin-top:5px; }
+  .tiprows b { text-align:right; font-variant-numeric:tabular-nums; }
+  .tipmore { color:#8a949e; font-size:10.5px; margin-top:5px; }
+  .pgroup { font-size:.68rem; font-weight:700; color:var(--muted); text-transform:uppercase;
+            letter-spacing:.05em; margin:10px 0 2px; }
+
+  /* ---- mobile (and short landscape viewports) ---- */
+  @media (max-width:640px), (max-height:430px){
+    .topbar { gap:10px; padding:0 12px; }
+    .topbar .gen { display:none; }
+    .ctl-card { top:56px; left:8px; right:8px; width:auto; max-width:none; }
+    .chips { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+    .chips::-webkit-scrollbar { display:none; }
+    .chip { flex:0 0 auto; }
+    .mgroups { max-height:34vh; }
+    .mrow { min-height:40px; }
+    .legend-card { bottom:12px; left:8px; }
+    .panel { top:auto; left:0; right:0; bottom:0; width:auto; border-radius:14px 14px 0 0;
+             max-height:45vh; max-height:45dvh; transform:translateY(100%); }
+    .panel.open { transform:translateY(0); }
+    body.panel-open .legend-card { display:none; }
+  }
 </style>
 </head>
 <body>
   <div class="topbar">
     <a href="index.html">← Dashboard</a>
     <h1>National map</h1>
-    <button id="resetBtn" class="reset">↺ Zoom out to US</button>
-    <span class="gen">Updated 2026-07-05 10:22</span>
+    <button id="resetBtn" class="reset">↺ US view</button>
+    <span class="gen">Updated 2026-07-07 09:13</span>
   </div>
 
-  <div class="pillbar">
-    
-    <button class="pill active" data-key="home_value"
-            onclick="setMetric(this)">Home value</button>
-    
-    <button class="pill " data-key="home_value_12m_pct"
-            onclick="setMetric(this)">Home value, 1-yr change</button>
-    
-    <button class="pill " data-key="rent"
-            onclick="setMetric(this)">Rent (where available)</button>
-    
-    <button class="pill " data-key="price_to_rent"
-            onclick="setMetric(this)">Price-to-rent</button>
-    
-    <button class="pill " data-key="median_income"
-            onclick="setMetric(this)">Median household income</button>
-    
-    <button class="pill " data-key="population"
-            onclick="setMetric(this)">Population</button>
-    
+  <div id="map"></div>
+  <div class="veil" id="veil"></div>
+
+  <div class="ctl-card">
+    <div class="searchwrap">
+      <input id="searchBox" type="text" placeholder="Search county or ZIP…"
+             autocomplete="off" spellcheck="false" aria-label="Search county or ZIP">
+      <ul class="sresults" id="searchResults" hidden></ul>
+    </div>
+    <div class="chips" id="chips" hidden></div>
+    <div class="mgroups" id="mgroups"></div>
   </div>
-  <div class="legend" id="legend"></div>
 
-  <div class="mapwrap"><div id="map"></div></div>
+  <div class="legend-card" id="legendCard">
+    <div class="lhead">
+      <span class="lt" id="legendTitle"></span>
+      <span class="ltag" id="legendTag"></span>
+      <button class="ibtn" id="infoBtn" title="About this map">ⓘ</button>
+    </div>
+    <div class="ldesc" id="legendDesc"></div>
+    <div class="lrow">
+      <span class="lv" id="legendLo"></span>
+      <span class="lbar" id="legendBar">
+        <span class="ltick" id="legendTick"></span>
+        <span class="lzones" id="legendZones" title="Click to show only part of the range"></span>
+      </span>
+      <span class="lv" id="legendHi"></span>
+    </div>
+    <div class="lfoot">
+      <span class="lna"><i></i> No data</span>
+      <button class="rchip" id="rangeChip" hidden>Showing selected range ✕</button>
+    </div>
+    <div class="infopop" id="infopop" hidden>
+      Updated 2026-07-07 09:13. Coverage: home value 3072/3072
+      counties, rent 1362, income 3062.
+      Your tracked markets (Lucas County, OH, San Francisco County, CA) are outlined in black.
+      Zoom into a tracked state for ZIP-level detail. Gray = no public data for that metric.
+      Sources: Zillow Research (values, rents, forecast) · Housing data: Realtor.com®
+      Economic Research · Sale data: Redfin, a national real estate brokerage ·
+      Census ACS 5-year &amp; Population Estimates · IRS SOI migration.
+      Public data; the 1-yr forecast is Zillow's, everything else is measured, not predicted.
+    </div>
+  </div>
 
-  <p class="note">
-    Drag to pan, scroll to zoom, hover for values. Zoom into a tracked state
-    (Lucas County, OH, San Francisco County, CA) to drill down to <strong>ZIP-level</strong> detail.
-    Gray areas have no public value for the selected metric. Coverage: home value
-    3072/3072 counties, rent 1362,
-    income 3063. Sources: Zillow ZHVI/ZORI + Census ACS 5-year.
-    Streamed as vector tiles. Public data, not a forecast.
-  </p>
+  <div class="panel" id="panel">
+    <div class="phead">
+      <div>
+        <h2 id="panelName"></h2>
+        <span class="badge" id="panelBadge" hidden>TRACKED</span>
+      </div>
+      <button class="pclose" id="panelClose" title="Close">✕</button>
+    </div>
+    <div class="prows" id="panelRows"></div>
+    <div class="pactions">
+      <button class="pbtn primary" id="zoomHereBtn">Zoom here</button>
+      <button class="pbtn" id="zipDetailBtn" hidden>ZIP detail →</button>
+    </div>
+  </div>
+
+  <div class="coach" id="coach">👆 Click or tap any county for local prices</div>
 
 <script>
-const METRICS = [{"key":"home_value","label":"Home value","fmt":"usd","expr":["case",["has","home_value"],["interpolate",["linear"],["get","home_value"],94570.15881400388,"#3288bd",155891.99156395672,"#66c2a5",192415.71909406362,"#abdda4",233953.7593942475,"#e6f598",286728.4146293603,"#fee08b",372616.96805490827,"#fc8d59",729361.173267388,"#d53e4f"],"#e8e8e8"],"colorscale":[[0.0,"#3288bd"],[0.09660160801544555,"#66c2a5"],[0.1541382251043899,"#abdda4"],[0.21957399743641026,"#e6f598"],[0.3027110520472996,"#fee08b"],[0.4380131459175259,"#fc8d59"],[1.0,"#d53e4f"]],"zmin":94570.15881400388,"zmax":729361.173267388,"legend":{"colors":["#3288bd","#66c2a5","#abdda4","#e6f598","#fee08b","#fc8d59","#d53e4f"],"lo":"$94,570","mid":"$233,954","hi":"$729,361"}},{"key":"home_value_12m_pct","label":"Home value, 1-yr change","fmt":"pct","expr":["case",["has","home_value_12m_pct"],["interpolate",["linear"],["get","home_value_12m_pct"],-10.888388169573052,"#d73027",-1.2677870412091923,"#f46d43",0.9579383284297045,"#fdae61",2.483579180789619,"#fee08b",4.17836342986815,"#d9ef8b",6.244634381232161,"#a6d96a",11.76385218330678,"#1a9850"],"#e8e8e8"],"colorscale":[[0.0,"#d73027"],[0.42470859299092556,"#f46d43"],[0.5229648950151947,"#fdae61"],[0.5903154452739445,"#fee08b"],[0.66513295659631,"#d9ef8b"],[0.756350024717403,"#a6d96a"],[1.0,"#1a9850"]],"zmin":-10.888388169573052,"zmax":11.76385218330678,"legend":{"colors":["#d73027","#f46d43","#fdae61","#fee08b","#d9ef8b","#a6d96a","#1a9850"],"lo":"-10.9%","mid":"+2.5%","hi":"+11.8%"}},{"key":"rent","label":"Rent (where available)","fmt":"usd_mo","expr":["case",["has","rent"],["interpolate",["linear"],["get","rent"],844.475,"#3288bd",1152.4904093567252,"#66c2a5",1332.7627891816921,"#abdda4",1498.9214620948367,"#e6f598",1708.45728042328,"#fee08b",1970.5711111111111,"#fc8d59",3071.062205707715,"#d53e4f"],"#e8e8e8"],"colorscale":[[0.0,"#3288bd"],[0.13833521030173318,"#66c2a5"],[0.2192987491933832,"#abdda4"],[0.293923570753126,"#e6f598"],[0.3880298414580468,"#fee08b"],[0.5057498346457912,"#fc8d59"],[1.0,"#d53e4f"]],"zmin":844.475,"zmax":3071.062205707715,"legend":{"colors":["#3288bd","#66c2a5","#abdda4","#e6f598","#fee08b","#fc8d59","#d53e4f"],"lo":"$844/mo","mid":"$1,499/mo","hi":"$3,071/mo"}},{"key":"price_to_rent","label":"Price-to-rent","fmt":"ratio","expr":["case",["has","price_to_rent"],["interpolate",["linear"],["get","price_to_rent"],10.236900278966012,"#3288bd",13.930642327958353,"#66c2a5",15.65237296819398,"#abdda4",17.30642238656481,"#e6f598",19.079875300010325,"#fee08b",21.862626554215705,"#fc8d59",28.719744531366175,"#d53e4f"],"#e8e8e8"],"colorscale":[[0.0,"#3288bd"],[0.19984705809078468,"#66c2a5"],[0.2929999633863019,"#abdda4"],[0.382491028494208,"#e6f598"],[0.4784423273975256,"#fee08b"],[0.6290009327833831,"#fc8d59"],[1.0,"#d53e4f"]],"zmin":10.236900278966012,"zmax":28.719744531366175,"legend":{"colors":["#3288bd","#66c2a5","#abdda4","#e6f598","#fee08b","#fc8d59","#d53e4f"],"lo":"10.2x","mid":"17.3x","hi":"28.7x"}},{"key":"median_income","label":"Median household income","fmt":"usd","expr":["case",["has","median_income"],["interpolate",["linear"],["get","median_income"],37993.96,"#3288bd",51880.96,"#66c2a5",58412.920000000006,"#abdda4",63654.0,"#e6f598",69815.27999999998,"#fee08b",78199.99999999999,"#fc8d59",113872.99999999994,"#d53e4f"],"#e8e8e8"],"colorscale":[[0.0,"#3288bd"],[0.18301496697902359,"#66c2a5"],[0.26909881832980515,"#abdda4"],[0.33817033004107616,"#e6f598"],[0.41936903787923524,"#fee08b"],[0.5298701723163606,"#fc8d59"],[1.0,"#d53e4f"]],"zmin":37993.96,"zmax":113872.99999999994,"legend":{"colors":["#3288bd","#66c2a5","#abdda4","#e6f598","#fee08b","#fc8d59","#d53e4f"],"lo":"$37,994","mid":"$63,654","hi":"$113,873"}},{"key":"population","label":"Population","fmt":"count","expr":["case",["has","population"],["interpolate",["linear"],["get","population"],1869.32,"#3288bd",8607.599999999999,"#66c2a5",16051.120000000003,"#abdda4",26731.0,"#e6f598",46377.87999999996,"#fee08b",110292.59999999998,"#fc8d59",903350.119999993,"#d53e4f"],"#e8e8e8"],"colorscale":[[0.0,"#3288bd"],[0.00747467943854162,"#66c2a5"],[0.015731671711699365,"#abdda4"],[0.02757871271357104,"#e6f598"],[0.04937272097198332,"#fee08b"],[0.12027242288465911,"#fc8d59"],[1.0,"#d53e4f"]],"zmin":1869.32,"zmax":903350.119999993,"legend":{"colors":["#3288bd","#66c2a5","#abdda4","#e6f598","#fee08b","#fc8d59","#d53e4f"],"lo":"1,869","mid":"26,731","hi":"903,350"}}];
+const METRICS = [{"key":"home_value","label":"Home prices","fmt":"usd","group":"Popular","desc":"Typical home value (Zillow ZHVI) \u2014 what a mid-range home costs here.","q":[41525.55,113241.2,133329.67,146762.23,160853.3,172181.51,183338.65,194376.59,207551.32,222137.28,233953.76,247670.5,263767.15,282683.21,303224.11,326321.41,357723.0,394894.12,446130.37,551493.73,3087902.57],"expr":["case",["has","home_value"],["interpolate",["linear"],["get","home_value"],94570.15881400388,"#2166ac",155891.99156395672,"#4393c3",192415.71909406362,"#92c5de",233953.75939424752,"#f7f3e8",286728.4146293603,"#f4a582",372616.96805490827,"#d6604d",729361.173267388,"#b2182b"],"#d4d4d4"],"zmin":94570.15881400388,"zmax":729361.173267388,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"$94,570","mid":"$233,954","hi":"$729,361","qs":[94570.16,172181.51,233953.76,326321.41,729361.17]},"zexpr":["case",["has","home_value"],["interpolate",["linear"],["get","home_value"],100425.44,"#2166ac",191681.58,"#4393c3",243313.12,"#92c5de",302933.0,"#f7f3e8",398695.3399999999,"#f4a582",670306.76,"#d6604d",1903627.4999999967,"#b2182b"],"#d4d4d4"],"zzmin":100425.44,"zzmax":1903627.4999999967,"zlegend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"$100,425","mid":"$302,933","hi":"$1,903,627","qs":[100425.44,213522.5,302933.0,508498.75,1903627.5]}},{"key":"home_value_12m_pct","label":"1-yr price change","fmt":"pct","group":"Popular","desc":"How much typical home prices rose or fell over the last 12 months.","q":[-28.23,-5.82,-3.04,-1.9,-0.91,-0.14,0.53,1.05,1.54,1.99,2.48,3.02,3.53,4.07,4.59,5.22,5.87,6.77,7.81,9.53,36.07],"expr":["case",["has","home_value_12m_pct"],["interpolate",["linear"],["get","home_value_12m_pct"],-10.888388169573052,"#b2182b",-1.2677870412091923,"#d6604d",0.9579383284297045,"#f4a582",2.483579180789619,"#f7f3e8",4.17836342986815,"#a6dba0",6.244634381232161,"#5aae61",11.76385218330679,"#1b7837"],"#d4d4d4"],"zmin":-10.888388169573052,"zmax":11.76385218330679,"legend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-10.9%","mid":"+2.5%","hi":"+11.8%","qs":[-10.89,-0.14,2.48,5.22,11.76]},"zexpr":["case",["has","home_value_12m_pct"],["interpolate",["linear"],["get","home_value_12m_pct"],-7.9,"#b2182b",-2.6,"#d6604d",-0.8,"#f4a582",0.9,"#f7f3e8",2.7,"#a6dba0",5.0,"#5aae61",10.6,"#1b7837"],"#d4d4d4"],"zzmin":-7.9,"zzmax":10.6,"zlegend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-7.9%","mid":"+0.9%","hi":"+10.6%","qs":[-7.9,-1.7,0.9,3.9,10.6]}},{"key":"cap_rate","label":"Cap rate (est.)","fmt":"pct1","group":"Popular","desc":"Est. net rent \u00f7 home price, after property tax (this area's ACS effective rate where available, state average otherwise), insurance and 20% for vacancy/upkeep. Higher = better cash flow.","q":[0.42,1.66,1.87,2.08,2.25,2.4,2.59,2.73,2.86,3.0,3.13,3.29,3.46,3.62,3.8,4.01,4.24,4.46,4.86,5.54,8.99],"expr":["case",["has","cap_rate"],["interpolate",["linear"],["get","cap_rate"],1.27,"#2166ac",2.17,"#4393c3",2.69,"#92c5de",3.13,"#f7f3e8",3.65,"#f4a582",4.35,"#d6604d",6.528999999999999,"#b2182b"],"#d4d4d4"],"zmin":1.27,"zmax":6.528999999999999,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"1.3%","mid":"3.1%","hi":"6.5%","qs":[1.27,2.4,3.13,4.01,6.53]},"zexpr":["case",["has","cap_rate"],["interpolate",["linear"],["get","cap_rate"],0.07280000000000002,"#2166ac",1.37,"#4393c3",2.03,"#92c5de",2.64,"#f7f3e8",3.29,"#f4a582",4.254799999999998,"#d6604d",8.342399999999966,"#b2182b"],"#d4d4d4"],"zzmin":0.07280000000000002,"zzmax":8.342399999999966,"zlegend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"0.1%","mid":"2.6%","hi":"8.3%","qs":[0.07,1.69,2.64,3.72,8.34]}},{"key":"home_value_fc_12m","label":"1-yr price forecast","fmt":"pct","group":"Popular","desc":"Zillow's forecast of home-value growth over the next 12 months. ZIP-level only \u2014 counties show no data.","q":[],"expr":["case",["has","home_value_fc_12m"],["interpolate",["linear"],["get","home_value_fc_12m"],-4.9,"#b2182b",-1.9,"#d6604d",-1.0,"#f4a582",-0.2,"#f7f3e8",0.4,"#a6dba0",1.3,"#5aae61",3.0,"#1b7837"],"#d4d4d4"],"zmin":-4.9,"zmax":3.0,"legend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-4.9%","mid":"-0.2%","hi":"+3.0%","qs":[-4.9,-1.4,-0.2,0.8,3.0]},"zexpr":["case",["has","home_value_fc_12m"],["interpolate",["linear"],["get","home_value_fc_12m"],-4.9,"#b2182b",-1.9,"#d6604d",-1.0,"#f4a582",-0.2,"#f7f3e8",0.4,"#a6dba0",1.3,"#5aae61",3.0,"#1b7837"],"#d4d4d4"],"zzmin":-4.9,"zzmax":3.0,"zlegend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-4.9%","mid":"-0.2%","hi":"+3.0%","qs":[-4.9,-1.4,-0.2,0.8,3.0]},"zip_only":true},{"key":"home_value_5y_pct","label":"5-yr price change","fmt":"pct","group":"Price trends","desc":"Total price growth over the last five years.","q":[-57.97,-6.57,4.24,10.04,13.93,17.4,20.18,22.55,24.38,26.14,27.93,29.49,30.96,32.37,33.88,35.59,37.33,39.4,42.06,46.14,106.73],"expr":["case",["has","home_value_5y_pct"],["interpolate",["linear"],["get","home_value_5y_pct"],-17.405552245722546,"#b2182b",12.441437037833953,"#d6604d",22.185010538145427,"#f4a582",27.930087182158392,"#f7f3e8",32.7259980595895,"#a6dba0",38.130690401415094,"#5aae61",50.504912897798455,"#1b7837"],"#d4d4d4"],"zmin":-17.405552245722546,"zmax":50.504912897798455,"legend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-17.4%","mid":"+27.9%","hi":"+50.5%","qs":[-17.41,17.4,27.93,35.59,50.5]},"zexpr":["case",["has","home_value_5y_pct"],["interpolate",["linear"],["get","home_value_5y_pct"],-14.2,"#b2182b",7.9,"#d6604d",17.0,"#f4a582",23.5,"#f7f3e8",29.5,"#a6dba0",35.7,"#5aae61",48.492000000000004,"#1b7837"],"#d4d4d4"],"zzmin":-14.2,"zzmax":48.492000000000004,"zlegend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-14.2%","mid":"+23.5%","hi":"+48.5%","qs":[-14.2,12.4,23.5,32.7,48.49]}},{"key":"home_value_mom_pct","label":"1-mo price change","fmt":"pct2","group":"Price trends","desc":"Price move in the latest month \u2014 the short-term pulse.","q":[-4.38,-0.78,-0.51,-0.37,-0.28,-0.21,-0.15,-0.1,-0.05,-0.0,0.05,0.09,0.13,0.18,0.24,0.3,0.38,0.47,0.61,0.84,2.37],"expr":["case",["has","home_value_mom_pct"],["interpolate",["linear"],["get","home_value_mom_pct"],-1.2016836050374495,"#b2182b",-0.3170445656762793,"#d6604d",-0.11066211427331528,"#f4a582",0.04638887745307407,"#f7f3e8",0.19307648839924177,"#a6dba0",0.4114887368932138,"#5aae61",1.1921387464059092,"#1b7837"],"#d4d4d4"],"zmin":-1.2016836050374495,"zmax":1.1921387464059092,"legend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-1.20%","mid":"+0.05%","hi":"+1.19%","qs":[-1.2,-0.21,0.05,0.3,1.19]},"zexpr":["case",["has","home_value_mom_pct"],["interpolate",["linear"],["get","home_value_mom_pct"],-1.14,"#b2182b",-0.43,"#d6604d",-0.21,"#f4a582",-0.06,"#f7f3e8",0.1,"#a6dba0",0.31,"#5aae61",0.96,"#1b7837"],"#d4d4d4"],"zzmin":-1.14,"zzmax":0.96,"zlegend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-1.14%","mid":"-0.06%","hi":"+0.96%","qs":[-1.14,-0.32,-0.06,0.21,0.96]}},{"key":"pct_from_peak","label":"% below peak","fmt":"pct","group":"Price trends","desc":"How far today's value sits below this area's highest value on record. 0% = at its all-time high.","q":[-68.86,-17.92,-10.85,-7.3,-5.09,-3.47,-2.12,-1.2,-0.65,-0.37,-0.2,-0.1,-0.02,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"expr":["case",["has","pct_from_peak"],["interpolate",["linear"],["get","pct_from_peak"],-26.874122846301844,"#b2182b",-5.908185388376278,"#d6604d",-1.3333959815737046,"#f4a582",-0.1970208397255535,"#f7f3e8",0.0,"#a6dba0",1e-06,"#5aae61",2.0000009999999997e-06,"#1b7837"],"#d4d4d4"],"zmin":-26.874122846301844,"zmax":2.0000009999999997e-06,"legend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-26.9%","mid":"-0.2%","hi":"+0.0%","qs":[-26.87,-3.47,-0.2,0.0,0.0]},"zexpr":["case",["has","pct_from_peak"],["interpolate",["linear"],["get","pct_from_peak"],-26.901999999999997,"#b2182b",-9.4,"#d6604d",-4.4,"#f4a582",-1.7,"#f7f3e8",-0.2,"#a6dba0",0.0,"#5aae61",1e-06,"#1b7837"],"#d4d4d4"],"zzmin":-26.901999999999997,"zzmax":1e-06,"zlegend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-26.9%","mid":"-1.7%","hi":"+0.0%","qs":[-26.9,-6.8,-1.7,0.0,0.0]}},{"key":"value_income_ratio","label":"Price vs. income","fmt":"ratio","group":"Price trends","desc":"Home value (Zillow, current) \u00f7 median income (Census ACS 2020\u20132024 average \u2014 incomes lag ~2 yrs, so ratios read slightly high). ~3x is historically normal; 5x+ = stretched.","q":[1.0,2.1,2.4,2.6,2.8,3.0,3.1,3.2,3.4,3.5,3.6,3.8,3.9,4.1,4.2,4.5,4.8,5.1,5.6,6.4,25.6],"expr":["case",["has","value_income_ratio"],["interpolate",["linear"],["get","value_income_ratio"],1.7,"#2166ac",2.7,"#4393c3",3.2,"#92c5de",3.6,"#f7f3e8",4.1,"#f4a582",4.9,"#d6604d",7.9,"#b2182b"],"#d4d4d4"],"zmin":1.7,"zmax":7.9,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"1.7x","mid":"3.6x","hi":"7.9x","qs":[1.7,3.0,3.6,4.5,7.9]},"zexpr":["case",["has","value_income_ratio"],["interpolate",["linear"],["get","value_income_ratio"],1.9,"#2166ac",2.9,"#4393c3",3.4,"#92c5de",3.9,"#f7f3e8",5.0,"#f4a582",7.2,"#d6604d",14.385999999999967,"#b2182b"],"#d4d4d4"],"zzmin":1.9,"zzmax":14.385999999999967,"zlegend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"1.9x","mid":"3.9x","hi":"14.4x","qs":[1.9,3.2,3.9,6.0,14.39]}},{"key":"days_on_market","label":"Days on market","fmt":"days","group":"Market heat","desc":"Median days a listing sits before sale or pending (Realtor.com, latest month). Lower = hotter market.","q":[16.0,34.0,37.0,40.0,44.0,46.0,48.0,51.0,54.0,56.0,59.0,61.0,64.0,66.0,69.0,73.0,76.0,81.0,88.0,100.0,232.0],"expr":["case",["has","days_on_market"],["interpolate",["linear"],["get","days_on_market"],30.0,"#2166ac",42.0,"#4393c3",51.0,"#92c5de",59.0,"#f7f3e8",67.0,"#f4a582",78.0,"#d6604d",114.0,"#b2182b"],"#d4d4d4"],"zmin":30.0,"zmax":114.0,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"30 days","mid":"59 days","hi":"114 days","qs":[30.0,46.0,59.0,73.0,114.0]},"zexpr":["case",["has","days_on_market"],["interpolate",["linear"],["get","days_on_market"],25.0,"#2166ac",37.0,"#4393c3",44.0,"#92c5de",50.0,"#f7f3e8",59.0,"#f4a582",72.0,"#d6604d",112.94000000000005,"#b2182b"],"#d4d4d4"],"zzmin":25.0,"zzmax":112.94000000000005,"zlegend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"25 days","mid":"50 days","hi":"113 days","qs":[25.0,40.0,50.0,65.0,112.94]}},{"key":"price_cut_share","label":"Listings with price cuts","fmt":"pct1","group":"Market heat","desc":"% of active listings that took a price reduction this month (Realtor.com). Rising cuts = softening prices.","q":[0.0,5.83,9.0,10.5,11.9,13.1,14.1,15.0,15.8,16.5,17.2,18.0,18.7,19.5,20.4,21.3,22.4,23.6,25.2,27.67,57.1],"expr":["case",["has","price_cut_share"],["interpolate",["linear"],["get","price_cut_share"],0.0,"#2166ac",11.4,"#4393c3",14.8,"#92c5de",17.2,"#f7f3e8",19.7,"#f4a582",22.8,"#d6604d",30.38800000000001,"#b2182b"],"#d4d4d4"],"zmin":0.0,"zmax":30.38800000000001,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"0.0%","mid":"17.2%","hi":"30.4%","qs":[0.0,13.1,17.2,21.3,30.39]},"zexpr":["case",["has","price_cut_share"],["interpolate",["linear"],["get","price_cut_share"],0.0,"#2166ac",10.5,"#4393c3",14.4,"#92c5de",17.95,"#f7f3e8",21.2,"#f4a582",25.6,"#d6604d",37.2,"#b2182b"],"#d4d4d4"],"zzmin":0.0,"zzmax":37.2,"zlegend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"0.0%","mid":"17.9%","hi":"37.2%","qs":[0.0,12.3,17.95,23.42,37.2]}},{"key":"inventory_yoy","label":"Inventory change (1-yr)","fmt":"pct","group":"Market heat","desc":"Change in active for-sale listings vs a year ago (Realtor.com). Fast-rising inventory usually precedes flat or falling prices.","q":[-64.3,-24.67,-17.7,-12.5,-8.48,-5.05,-2.2,0.21,2.9,5.5,7.9,10.5,13.16,15.7,18.82,22.2,26.1,32.9,41.04,57.9,900.0],"expr":["case",["has","inventory_yoy"],["interpolate",["linear"],["get","inventory_yoy"],-34.588,"#b2182b",-10.0,"#d6604d",0.0,"#f4a582",7.9,"#f7f3e8",16.1,"#a6dba0",28.3,"#5aae61",87.9,"#1b7837"],"#d4d4d4"],"zmin":-34.588,"zmax":87.9,"legend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-34.6%","mid":"+7.9%","hi":"+87.9%","qs":[-34.59,-5.05,7.9,22.2,87.9]},"zexpr":["case",["has","inventory_yoy"],["interpolate",["linear"],["get","inventory_yoy"],-44.382,"#b2182b",-19.546000000000017,"#d6604d",-9.0,"#f4a582",0.0,"#f7f3e8",10.4,"#a6dba0",28.146000000000004,"#5aae61",111.47600000000003,"#1b7837"],"#d4d4d4"],"zzmin":-44.382,"zzmax":111.47600000000003,"zlegend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-44.4%","mid":"+0.0%","hi":"+111.5%","qs":[-44.38,-14.6,0.0,19.32,111.48]}},{"key":"median_sale_price","label":"Sale price (actual)","fmt":"usd","group":"Market heat","desc":"Median price homes actually SOLD for, latest month (Redfin). County-level data.","q":[70000.0,159000.0,183000.0,199180.0,215000.0,229000.0,240000.0,255000.0,270000.0,282460.0,294900.0,309120.0,325540.0,345000.0,365000.0,390000.0,423700.0,462102.0,519400.0,649200.0,2300000.0],"expr":["case",["has","median_sale_price"],["interpolate",["linear"],["get","median_sale_price"],133280.0,"#2166ac",210000.0,"#4393c3",252349.60000000003,"#92c5de",294900.0,"#f7f3e8",347539.9999999999,"#f4a582",436319.99999999994,"#d6604d",837820.0000000003,"#b2182b"],"#d4d4d4"],"zmin":133280.0,"zmax":837820.0000000003,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"$133,280","mid":"$294,900","hi":"$837,820","qs":[133280.0,229000.0,294900.0,390000.0,837820.0]}},{"key":"sold_above_list_pct","label":"Sold above asking","fmt":"pct1","group":"Market heat","desc":"% of sales that closed above list price (Redfin) \u2014 the bidding-war gauge. County-level data.","q":[0.0,0.0,3.2,6.5,9.1,10.78,12.9,14.7,16.2,17.6,19.2,20.87,22.9,25.0,27.8,30.23,33.3,37.1,41.7,49.77,83.8],"expr":["case",["has","sold_above_list_pct"],["interpolate",["linear"],["get","sold_above_list_pct"],0.0,"#2166ac",8.3,"#4393c3",14.3,"#92c5de",19.2,"#f7f3e8",25.2,"#f4a582",34.5,"#d6604d",58.874,"#b2182b"],"#d4d4d4"],"zmin":0.0,"zmax":58.874,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"0.0%","mid":"19.2%","hi":"58.9%","qs":[0.0,10.78,19.2,30.23,58.87]}},{"key":"months_supply","label":"Months of supply","fmt":"mos","group":"Market heat","desc":"Active inventory \u00f7 monthly sales pace (Redfin). Under ~3 months favors sellers; over ~6 favors buyers. County-level data.","q":[0.6,1.6,1.9,2.1,2.3,2.5,2.7,2.9,3.1,3.3,3.6,3.8,4.0,4.2,4.5,4.8,5.2,5.8,6.6,7.9,22.9],"expr":["case",["has","months_supply"],["interpolate",["linear"],["get","months_supply"],1.3,"#2166ac",2.3,"#4393c3",2.9,"#92c5de",3.6,"#f7f3e8",4.3,"#f4a582",5.5,"#d6604d",10.048000000000002,"#b2182b"],"#d4d4d4"],"zmin":1.3,"zmax":10.048000000000002,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"1.3 mo","mid":"3.6 mo","hi":"10.0 mo","qs":[1.3,2.5,3.6,4.8,10.05]}},{"key":"rent","label":"Rent","fmt":"usd_mo","group":"Rental & investor","desc":"Typical monthly rent (Zillow ZORI). Not every area reports rent.","q":[729.93,925.12,1039.35,1115.51,1181.21,1246.87,1290.51,1342.55,1388.77,1446.56,1498.92,1567.4,1636.72,1698.85,1763.5,1837.93,1926.31,2053.46,2218.47,2632.8,13664.53],"expr":["case",["has","rent"],["interpolate",["linear"],["get","rent"],844.475,"#2166ac",1152.4904093567252,"#4393c3",1332.7627891816921,"#92c5de",1498.9214620948367,"#f7f3e8",1708.45728042328,"#f4a582",1970.5711111111107,"#d6604d",3071.062205707715,"#b2182b"],"#d4d4d4"],"zmin":844.475,"zmax":3071.062205707715,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"$844/mo","mid":"$1,499/mo","hi":"$3,071/mo","qs":[844.48,1246.87,1498.92,1837.93,3071.06]},"zexpr":["case",["has","rent"],["interpolate",["linear"],["get","rent"],966.4,"#2166ac",1357.0,"#4393c3",1600.0,"#92c5de",1866.0,"#f7f3e8",2362.0,"#f4a582",2922.7999999999993,"#d6604d",4730.999999999997,"#b2182b"],"#d4d4d4"],"zzmin":966.4,"zzmax":4730.999999999997,"zlegend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"$966/mo","mid":"$1,866/mo","hi":"$4,731/mo","qs":[966.4,1462.0,1866.0,2672.0,4731.0]}},{"key":"rent_12m_pct","label":"1-yr rent change","fmt":"pct","group":"Rental & investor","desc":"How much typical rents rose or fell over the last 12 months.","q":[-5.37,-1.08,0.23,0.74,1.18,1.55,1.94,2.25,2.58,2.82,3.1,3.35,3.65,4.04,4.48,4.85,5.35,6.06,6.82,8.9,41.21],"expr":["case",["has","rent_12m_pct"],["interpolate",["linear"],["get","rent_12m_pct"],-1.920305128356884,"#b2182b",1.0096682458493884,"#d6604d",2.1902723289772563,"#f4a582",3.0974478891704127,"#f7f3e8",4.106140609503534,"#a6dba0",5.632991851808855,"#5aae61",12.625006369992889,"#1b7837"],"#d4d4d4"],"zmin":-1.920305128356884,"zmax":12.625006369992889,"legend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-1.9%","mid":"+3.1%","hi":"+12.6%","qs":[-1.92,1.55,3.1,4.85,12.63]},"zexpr":["case",["has","rent_12m_pct"],["interpolate",["linear"],["get","rent_12m_pct"],-3.942,"#b2182b",-0.6,"#d6604d",0.7,"#f4a582",2.0,"#f7f3e8",3.3,"#a6dba0",5.1,"#5aae61",12.684000000000015,"#1b7837"],"#d4d4d4"],"zzmin":-3.942,"zzmax":12.684000000000015,"zlegend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-3.9%","mid":"+2.0%","hi":"+12.7%","qs":[-3.94,-0.0,2.0,4.2,12.68]}},{"key":"price_to_rent","label":"Price vs. rent","fmt":"ratio","group":"Rental & investor","desc":"Home price \u00f7 one year of rent. Lower = better for rental cash flow.","q":[7.95,11.68,12.74,13.57,14.15,14.71,15.17,15.77,16.22,16.69,17.31,17.9,18.37,18.93,19.58,20.52,21.34,22.45,23.73,25.86,39.85],"expr":["case",["has","price_to_rent"],["interpolate",["linear"],["get","price_to_rent"],10.236900278966012,"#2166ac",13.930642327958353,"#4393c3",15.652372968193982,"#92c5de",17.30642238656481,"#f7f3e8",19.079875300010322,"#f4a582",21.862626554215705,"#d6604d",28.719744531366175,"#b2182b"],"#d4d4d4"],"zmin":10.236900278966012,"zmax":28.719744531366175,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"10.2x","mid":"17.3x","hi":"28.7x","qs":[10.24,14.71,17.31,20.52,28.72]},"zexpr":["case",["has","price_to_rent"],["interpolate",["linear"],["get","price_to_rent"],8.0,"#2166ac",13.2,"#4393c3",16.3,"#92c5de",19.2,"#f7f3e8",22.9,"#f4a582",29.14799999999998,"#d6604d",49.47199999999998,"#b2182b"],"#d4d4d4"],"zzmin":8.0,"zzmax":49.47199999999998,"zlegend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"8.0x","mid":"19.2x","hi":"49.5x","qs":[8.0,14.7,19.2,26.1,49.47]}},{"key":"gross_yield","label":"Gross rent yield","fmt":"pct1","group":"Rental & investor","desc":"A year of rent \u00f7 home price, before any expenses.","q":[2.51,3.87,4.21,4.45,4.68,4.87,5.11,5.28,5.44,5.58,5.78,5.99,6.17,6.34,6.59,6.8,7.07,7.37,7.85,8.56,12.57],"expr":["case",["has","gross_yield"],["interpolate",["linear"],["get","gross_yield"],3.4788,"#2166ac",4.57,"#4393c3",5.24,"#92c5de",5.78,"#f7f3e8",6.39,"#f4a582",7.180199999999999,"#d6604d",9.766799999999998,"#b2182b"],"#d4d4d4"],"zmin":3.4788,"zmax":9.766799999999998,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"3.5%","mid":"5.8%","hi":"9.8%","qs":[3.48,4.87,5.78,6.8,9.77]},"zexpr":["case",["has","gross_yield"],["interpolate",["linear"],["get","gross_yield"],2.02,"#2166ac",3.435199999999999,"#4393c3",4.367600000000001,"#92c5de",5.2,"#f7f3e8",6.13,"#f4a582",7.57,"#d6604d",12.560399999999985,"#b2182b"],"#d4d4d4"],"zzmin":2.02,"zzmax":12.560399999999985,"zlegend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"2.0%","mid":"5.2%","hi":"12.6%","qs":[2.02,3.83,5.2,6.8,12.56]}},{"key":"inbound_movers_pct","label":"Movers-in %","fmt":"pct1","group":"Migration & growth","desc":"Share of residents who arrived from another county, state or abroad in the past year (Census ACS 2020\u20132024 average).","q":[0.3,3.0,3.6,4.0,4.3,4.6,4.8,5.01,5.4,5.6,5.9,6.1,6.4,6.7,7.1,7.57,8.0,8.8,9.6,11.2,33.3],"expr":["case",["has","inbound_movers_pct"],["interpolate",["linear"],["get","inbound_movers_pct"],2.4,"#2166ac",4.2,"#4393c3",5.0,"#92c5de",5.9,"#f7f3e8",6.8,"#f4a582",8.4,"#d6604d",13.461999999999989,"#b2182b"],"#d4d4d4"],"zmin":2.4,"zmax":13.461999999999989,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"2.4%","mid":"5.9%","hi":"13.5%","qs":[2.4,4.6,5.9,7.57,13.46]},"zexpr":["case",["has","inbound_movers_pct"],["interpolate",["linear"],["get","inbound_movers_pct"],0.0,"#2166ac",2.1,"#4393c3",3.3,"#92c5de",4.5,"#f7f3e8",6.0,"#f4a582",8.2,"#d6604d",21.1,"#b2182b"],"#d4d4d4"],"zzmin":0.0,"zzmax":21.1,"zlegend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"0.0%","mid":"4.5%","hi":"21.1%","qs":[0.0,2.7,4.5,7.1,21.1]}},{"key":"net_dom_mig_rate","label":"Net domestic migration","fmt":"per1k","group":"Migration & growth","desc":"Net people moving in from elsewhere in the US per 1,000 residents, July 2024\u2013July 2025 (Census estimates). County-level data.","q":[-36.5,-12.3,-8.1,-5.7,-4.1,-2.73,-1.5,-0.52,0.4,1.3,2.1,3.0,3.9,4.9,6.0,7.6,9.1,10.8,13.89,18.24,54.9],"expr":["case",["has","net_dom_mig_rate"],["interpolate",["linear"],["get","net_dom_mig_rate"],-17.758,"#b2182b",-4.7,"#d6604d",-0.7,"#f4a582",2.1,"#f7f3e8",5.2,"#a6dba0",9.8,"#5aae61",25.257999999999992,"#1b7837"],"#d4d4d4"],"zmin":-17.758,"zmax":25.257999999999992,"legend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-17.8/1k","mid":"+2.1/1k","hi":"+25.3/1k","qs":[-17.76,-2.73,2.1,7.6,25.26]}},{"key":"agi_net_percap","label":"Income moving in (net)","fmt":"usd_s","group":"Migration & growth","desc":"Net income (AGI) carried by movers in minus movers out, per resident (IRS tax returns 2022\u20132023). County-level data.","q":[-4262.0,-513.0,-343.0,-257.0,-195.0,-145.0,-103.0,-63.0,-31.0,9.0,52.0,103.45,156.0,213.0,271.0,345.5,436.0,563.3,745.1,1056.15,5761.0],"expr":["case",["has","agi_net_percap"],["interpolate",["linear"],["get","agi_net_percap"],-749.1,"#b2182b",-217.98000000000013,"#d6604d",-71.74000000000001,"#f4a582",52.0,"#f7f3e8",221.0,"#a6dba0",471.0,"#5aae61",1652.1799999999962,"#1b7837"],"#d4d4d4"],"zmin":-749.1,"zmax":1652.1799999999962,"legend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-$749","mid":"+$52","hi":"+$1,652","qs":[-749.1,-145.0,52.0,345.5,1652.18]}},{"key":"median_income","label":"Household income","fmt":"usd","group":"Demographics","desc":"Median household income (Census ACS 2020\u20132024 average).","q":[22188.0,44423.15,49151.8,51910.1,54490.4,56776.0,58756.0,60517.7,62152.8,63710.5,65702.5,67187.75,69165.4,71290.9,73458.9,75741.25,78746.4,83182.7,89297.8,101783.05,181765.0],"expr":["case",["has","median_income"],["interpolate",["linear"],["get","median_income"],39369.72,"#2166ac",53343.88,"#4393c3",60134.0,"#92c5de",65702.5,"#f7f3e8",71646.19999999998,"#f4a582",80361.04,"#d6604d",116753.09999999985,"#b2182b"],"#d4d4d4"],"zmin":39369.72,"zmax":116753.09999999985,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"$39,370","mid":"$65,702","hi":"$116,753","qs":[39369.72,56776.0,65702.5,75741.25,116753.1]},"zexpr":["case",["has","median_income"],["interpolate",["linear"],["get","median_income"],34315.12,"#2166ac",55309.159999999996,"#4393c3",65289.04,"#92c5de",74886.0,"#f7f3e8",86970.64,"#f4a582",106410.63999999998,"#d6604d",187790.59999999998,"#b2182b"],"#d4d4d4"],"zzmin":34315.12,"zzmax":187790.59999999998,"zlegend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"$34,315","mid":"$74,886","hi":"$187,791","qs":[34315.12,60184.5,74886.0,96678.0,187790.6]}},{"key":"population","label":"Population","fmt":"count","group":"Demographics","desc":"Population (Census ACS 2020\u20132024).","q":[447.0,3243.5,5505.0,7456.5,9358.2,11624.5,14021.4,16569.6,19574.2,22528.9,26850.0,31927.0,37832.6,45155.5,55938.6,70534.5,98978.8,143997.6,227434.0,462488.2,9808667.0],"expr":["case",["has","population"],["interpolate",["linear"],["get","population"],1851.32,"#2166ac",8586.759999999998,"#4393c3",16053.24,"#92c5de",26850.0,"#f7f3e8",46648.15999999991,"#f4a582",111580.75999999988,"#d6604d",909961.079999995,"#b2182b"],"#d4d4d4"],"zmin":1851.32,"zmax":909961.079999995,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"1,851","mid":"26,850","hi":"909,961","qs":[1851.32,11624.5,26850.0,70534.5,909961.08]},"zexpr":["case",["has","population"],["interpolate",["linear"],["get","population"],18.58,"#2166ac",657.0,"#4393c3",2137.5800000000004,"#92c5de",5996.5,"#f7f3e8",17289.28,"#f4a582",33016.03999999999,"#d6604d",69760.04000000001,"#b2182b"],"#d4d4d4"],"zzmin":18.58,"zzmax":69760.04000000001,"zlegend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"19","mid":"5,996","hi":"69,760","qs":[18.58,1182.5,5996.5,25911.0,69760.04]}},{"key":"property_tax_rate","label":"Property tax rate","fmt":"pct2u","group":"Taxes & policy","desc":"Median property taxes \u00f7 median home value, owner-reported (Census ACS 2020\u20132024; ZIPs are ZCTAs). Levels run ~10\u201315% low vs assessor data \u2014 rankings hold. Areas at the ACS $10,000 tax cap are hidden.","q":[0.15,0.38,0.45,0.49,0.54,0.58,0.62,0.66,0.7,0.75,0.8,0.87,0.94,1.01,1.08,1.17,1.28,1.39,1.52,1.77,3.56],"expr":["case",["has","property_tax_rate"],["interpolate",["linear"],["get","property_tax_rate"],0.31,"#2166ac",0.52,"#4393c3",0.65,"#92c5de",0.8,"#f7f3e8",1.02,"#f4a582",1.32,"#d6604d",2.0998,"#b2182b"],"#d4d4d4"],"zmin":0.31,"zmax":2.0998,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"0.31%","mid":"0.80%","hi":"2.10%","qs":[0.31,0.58,0.8,1.17,2.1]},"zexpr":["case",["has","property_tax_rate"],["interpolate",["linear"],["get","property_tax_rate"],0.41,"#2166ac",0.62,"#4393c3",0.73,"#92c5de",0.9,"#f7f3e8",1.12,"#f4a582",1.4,"#d6604d",1.93,"#b2182b"],"#d4d4d4"],"zzmin":0.41,"zzmax":1.93,"zlegend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"0.41%","mid":"0.90%","hi":"1.93%","qs":[0.41,0.67,0.9,1.26,1.93]}},{"key":"constr_wage_index","label":"Construction labor cost","fmt":"idx","group":"Taxes & policy","desc":"County construction wages vs the US average (BLS QCEW 2025, private NAICS 23; 1.00 = US). A rehab-labor cost proxy. Small/suppressed counties show the prior year or state figure. County-level data.","q":[0.42,0.61,0.66,0.68,0.71,0.73,0.76,0.78,0.81,0.83,0.85,0.87,0.88,0.9,0.92,0.96,0.99,1.01,1.04,1.11,3.06],"expr":["case",["has","constr_wage_index"],["interpolate",["linear"],["get","constr_wage_index"],0.56242,"#2166ac",0.7,"#4393c3",0.777,"#92c5de",0.847,"#f7f3e8",0.907,"#f4a582",0.998,"#d6604d",1.2027399999999997,"#b2182b"],"#d4d4d4"],"zmin":0.56242,"zmax":1.2027399999999997,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"0.56x US","mid":"0.85x US","hi":"1.20x US","qs":[0.56,0.73,0.85,0.96,1.2]}},{"key":"landlord_score","label":"Landlord friendliness","fmt":"score","group":"Taxes & policy","desc":"State landlord-tenant climate, 0\u201310 (higher = more landlord-friendly): rent-control preemption, eviction speed, deposit caps, just-cause, notice burden. STATE law \u2014 all counties in a state match (editorial index, July 2026; some cities add local rules).","q":[0.0,3.0,4.0,5.0,6.0,7.0,8.0,8.0,8.0,8.0,8.0,9.0,9.0,9.0,9.0,9.0,10.0,10.0,10.0,10.0,10.0],"expr":["case",["has","landlord_score"],["interpolate",["linear"],["get","landlord_score"],0.0,"#2166ac",6.0,"#4393c3",8.0,"#92c5de",8.000009,"#f7f3e8",9.0,"#f4a582",10.0,"#d6604d",10.000011,"#b2182b"],"#d4d4d4"],"zmin":0.0,"zmax":10.000011,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"0/10","mid":"8/10","hi":"10/10","qs":[0.0,7.0,8.0,9.0,10.0]}},{"key":"sec8_premium","label":"Section 8 rent premium","fmt":"pct","group":"Taxes & policy","desc":"HUD voucher rent ceiling (FY2026 Small Area FMR, 2-bed GROSS rent incl. utilities) vs typical asking rent (Zillow ZORI). Positive = vouchers may pay above market; utilities bias this UP. ZIP-level only.","q":[],"expr":["case",["has","sec8_premium"],["interpolate",["linear"],["get","sec8_premium"],-38.660000000000004,"#b2182b",-15.5,"#d6604d",-6.1,"#f4a582",2.1,"#f7f3e8",9.9,"#a6dba0",19.5,"#5aae61",42.45999999999995,"#1b7837"],"#d4d4d4"],"zmin":-38.660000000000004,"zmax":42.45999999999995,"legend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-38.7%","mid":"+2.1%","hi":"+42.5%","qs":[-38.66,-11.3,2.1,14.5,42.46]},"zexpr":["case",["has","sec8_premium"],["interpolate",["linear"],["get","sec8_premium"],-38.660000000000004,"#b2182b",-15.5,"#d6604d",-6.1,"#f4a582",2.1,"#f7f3e8",9.9,"#a6dba0",19.5,"#5aae61",42.45999999999995,"#1b7837"],"#d4d4d4"],"zzmin":-38.660000000000004,"zzmax":42.45999999999995,"zlegend":{"colors":["#b2182b","#d6604d","#f4a582","#f7f3e8","#a6dba0","#5aae61","#1b7837"],"lo":"-38.7%","mid":"+2.1%","hi":"+42.5%","qs":[-38.66,-11.3,2.1,14.5,42.46]},"zip_only":true},{"key":"hud_units_per_1k","label":"Subsidized housing density","fmt":"per1ku","group":"Taxes & policy","desc":"HUD-subsidized units, all programs (HUD, Dec 2025) per 1,000 renter households (Census ACS). County-level data.","q":[0.0,18.65,36.0,46.0,57.0,66.0,75.0,84.0,93.0,101.0,111.0,120.0,130.8,142.0,153.0,164.75,179.0,195.0,223.0,262.0,642.0],"expr":["case",["has","hud_units_per_1k"],["interpolate",["linear"],["get","hud_units_per_1k"],7.0,"#2166ac",52.739999999999895,"#4393c3",82.62000000000012,"#92c5de",111.0,"#f7f3e8",144.0,"#f4a582",185.0,"#d6604d",323.1399999999999,"#b2182b"],"#d4d4d4"],"zmin":7.0,"zmax":323.1399999999999,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"7/1k","mid":"111/1k","hi":"323/1k","qs":[7.0,66.0,111.0,164.75,323.14]}},{"key":"hcv_per_1k","label":"Vouchers per 1k renters","fmt":"per1ku","group":"Taxes & policy","desc":"Housing Choice Vouchers in use (HUD, Dec 2025) per 1,000 renter households. High = deep Section 8 tenant pool. County-level data.","q":[0.0,4.0,6.0,10.0,14.0,19.0,23.0,28.0,33.0,37.0,42.0,48.0,54.0,59.05,66.0,73.75,83.0,95.0,110.0,135.0,381.0],"expr":["case",["has","hcv_per_1k"],["interpolate",["linear"],["get","hcv_per_1k"],2.0,"#2166ac",12.0,"#4393c3",26.0,"#92c5de",42.0,"#f7f3e8",61.0,"#f4a582",87.0,"#d6604d",163.86000000000013,"#b2182b"],"#d4d4d4"],"zmin":2.0,"zmax":163.86000000000013,"legend":{"colors":["#2166ac","#4393c3","#92c5de","#f7f3e8","#f4a582","#d6604d","#b2182b"],"lo":"2/1k","mid":"42/1k","hi":"164/1k","qs":[2.0,19.0,42.0,73.75,163.86]}}];
+const LANDLORD = {"AL":9,"AK":7,"AZ":8,"AR":8,"CA":3,"CO":4,"CT":6,"DE":5,"FL":10,"GA":9,"HI":5,"ID":10,"IL":9,"IN":9,"IA":8,"KS":8,"KY":9,"LA":10,"ME":4,"MD":4,"MA":5,"MI":7,"MN":5,"MS":10,"MO":8,"MT":10,"NE":7,"NV":8,"NH":4,"NJ":2,"NM":9,"NY":0,"NC":6,"ND":8,"OH":9,"OK":10,"OR":4,"PA":5,"RI":5,"SC":9,"SD":7,"TN":8,"TX":10,"UT":10,"VT":5,"VA":8,"WA":3,"WV":10,"WI":8,"WY":9,"DC":0};  // state -> 0-10 score
 const HAS_ZIPS = true;
+const ZIP_STATES = ["oh", "ca", "in", "tx", "nv"];
 const byKey = {}; METRICS.forEach(m => byKey[m.key] = m);
 let currentKey = METRICS[0].key, firstSymbolId = null;
+let map = null, dragging = false, rangeIdx = null, hoverRef = null, pending = null;
+let sel = { props:null, isZip:false, bounds:null, cname:'' };
 
+const US_BOUNDS = [[-125.0, 24.2], [-66.5, 49.5]];
+const easeOutCubic = t => 1 - Math.pow(1 - t, 3);
+const CAN_HOVER = window.matchMedia && window.matchMedia('(hover: hover)').matches;
+
+const $ = id => document.getElementById(id);
+const panel = $('panel'), sresults = $('searchResults'), searchBox = $('searchBox');
+const infopop = $('infopop'), coach = $('coach'), tick = $('legendTick');
+
+// One shared formatter: per-call toLocaleString() rebuilds Intl.NumberFormat and
+// makes 6k-label rebuilds ~10x slower ('en-US' matches the Python-rendered legend).
+const NF = new Intl.NumberFormat('en-US');
 function fmt(kind, v){
   if(v === null || v === undefined || isNaN(v)) return 'n/a';
-  if(kind === 'usd') return '$' + Math.round(v).toLocaleString();
-  if(kind === 'usd_mo') return '$' + Math.round(v).toLocaleString() + '/mo';
+  if(kind === 'usd') return '$' + NF.format(Math.round(v));
+  if(kind === 'usd_mo') return '$' + NF.format(Math.round(v)) + '/mo';
   if(kind === 'pct') return (v >= 0 ? '+' : '') + v.toFixed(1) + '%';
+  if(kind === 'pct1') return v.toFixed(1) + '%';
+  if(kind === 'pct2') return (v >= 0 ? '+' : '') + v.toFixed(2) + '%';
   if(kind === 'ratio') return v.toFixed(1) + 'x';
-  if(kind === 'count') return Math.round(v).toLocaleString();
+  if(kind === 'count') return NF.format(Math.round(v));
+  if(kind === 'per1k') return (v >= 0 ? '+' : '') + v.toFixed(1) + '/1k';
+  if(kind === 'days') return NF.format(Math.round(v)) + ' days';
+  if(kind === 'usd_s') return (v >= 0 ? '+$' : '-$') + NF.format(Math.abs(Math.round(v)));
+  if(kind === 'mos') return v.toFixed(1) + ' mo';
+  if(kind === 'pct2u') return v.toFixed(2) + '%';
+  if(kind === 'idx') return v.toFixed(2) + 'x US';
+  if(kind === 'score') return Math.round(v) + '/10';
+  if(kind === 'per1ku') return NF.format(Math.round(v)) + '/1k';
   return v;
 }
-function setLegend(key){
-  const L = byKey[key].legend;
-  document.getElementById('legend').innerHTML =
-    '<span class="lt">' + byKey[key].label + '</span>' +
-    '<span class="lv">' + L.lo + '</span>' +
-    '<span class="lbar" style="background:linear-gradient(to right,' + L.colors.join(',') + ')"></span>' +
-    '<span class="lv">' + L.hi + '</span>';
+const GROUPS = [];
+METRICS.forEach(m => { if(GROUPS.indexOf(m.group) < 0) GROUPS.push(m.group); });
+function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+/* ---------- legend (county scale at national zoom, ZIP scale when drilled in) ---------- */
+function zipLegendActive(){
+  const m = byKey[currentKey];
+  if(m.zip_only) return true;
+  if(!(HAS_ZIPS && m.zlegend && map && map.getZoom && map.getZoom() > 6.6)) return false;
+  // Only claim the ZIP scale when ZIP polygons are actually on screen —
+  // zoomed into an untracked state, the visible fills are county-scale.
+  try {
+    return !!map.getLayer('zips-fill') &&
+           map.queryRenderedFeatures({ layers: ['zips-fill'] }).length > 0;
+  } catch(e){ return false; }
 }
+function legendVariant(){
+  const m = byKey[currentKey];
+  if(m.zip_only)
+    return { L: m.legend, lo: m.zmin, hi: m.zmax, tag: 'ZIP scale' };
+  return zipLegendActive()
+    ? { L: m.zlegend, lo: m.zzmin, hi: m.zzmax, tag: 'ZIP scale' }
+    : { L: m.legend, lo: m.zmin, hi: m.zmax, tag: (HAS_ZIPS && m.zlegend) ? 'county scale' : '' };
+}
+function setLegend(key){
+  const m = byKey[key], v = legendVariant();
+  $('legendTitle').textContent = m.label;
+  $('legendTag').textContent = v.tag;
+  $('legendDesc').textContent = m.desc || '';
+  $('legendBar').style.background = 'linear-gradient(to right,' + v.L.colors.join(',') + ')';
+  $('legendLo').textContent = v.L.lo;
+  $('legendHi').textContent = v.L.hi;
+  hideTick();
+}
+function showTick(v){
+  // The bar's colors sit at QUANTILE stops, so place the tick piecewise between
+  // the quartile edges (falls back to linear when qs are unavailable).
+  const lv = legendVariant();
+  const qs = (lv.L || {}).qs;
+  let frac;
+  if(qs && qs.length === 5){
+    if(v <= qs[0]) frac = 0;
+    else if(v >= qs[4]) frac = 1;
+    else {
+      for(let i = 0; i < 4; i++){
+        if(v >= qs[i] && v <= qs[i + 1]){
+          const span = qs[i + 1] - qs[i];
+          frac = (i + (span > 0 ? (v - qs[i]) / span : 0)) / 4;
+          break;
+        }
+      }
+    }
+  }
+  if(frac === undefined){
+    const span = (lv.hi - lv.lo) || 1;
+    frac = Math.max(0, Math.min(1, (v - lv.lo) / span));
+  }
+  tick.style.left = (100 * frac) + '%';
+  tick.style.display = 'block';
+}
+function hideTick(){ tick.style.display = 'none'; }
+
+/* ---------- fill-opacity expressions (hover + cross-fade + range filter) ---------- */
+function countiesFillOpacity(cond){
+  const full = ['case', ['boolean', ['feature-state', 'hover'], false], 0.88, 0.72];
+  return cond ? ['case', cond, full, 0.12] : full;
+}
+function zipsFillOpacity(cond){
+  const full = ['case', ['boolean', ['feature-state', 'hover'], false], 0.95, 0.82];
+  const out = cond ? ['case', cond, full, 0.12] : full;
+  return ['interpolate', ['linear'], ['zoom'], 5.6, 0, 6.6, out];
+}
+function repaintOpacity(ccond, zcond){
+  if(!map || !map.getLayer('counties-fill')) return;
+  map.setPaintProperty('counties-fill', 'fill-opacity', countiesFillOpacity(ccond));
+  // County-only metrics (no zexpr): hide the ZIP layer entirely, otherwise it
+  // covers real county data with an opaque gray "no data" blanket.
+  if(map.getLayer('zips-fill'))
+    map.setPaintProperty('zips-fill', 'fill-opacity',
+      byKey[currentKey].zexpr ? zipsFillOpacity(zcond || ccond) : 0);
+}
+
+/* ---------- legend range filter ---------- */
+function zoneEls(){ return Array.prototype.slice.call($('legendZones').children); }
+function rangeCond(qs, i){
+  // Outer zones are open-ended so the extreme ~2% beyond the color-ramp stops stay lit.
+  if(!qs || qs.length !== 5) return null;
+  const cond = ['all', ['has', currentKey]];
+  if(i > 0) cond.push(['>=', ['get', currentKey], qs[i]]);
+  if(i < 3) cond.push(['<=', ['get', currentKey], qs[i + 1]]);
+  return cond;
+}
+function applyRange(i){
+  const m = byKey[currentKey];
+  const ccond = rangeCond((m.legend || {}).qs, i);
+  if(!ccond) return;
+  if(rangeIdx === i){ clearRange(true); return; }
+  rangeIdx = i;
+  // Each layer filters by its own distribution's quartiles (county vs ZIP scale).
+  const zcond = rangeCond((m.zlegend || m.legend || {}).qs, i) || ccond;
+  repaintOpacity(ccond, zcond);
+  $('rangeChip').hidden = false;
+  zoneEls().forEach((z, j) => z.classList.toggle('on', j === i));
+}
+function clearRange(repaint){
+  rangeIdx = null;
+  $('rangeChip').hidden = true;
+  zoneEls().forEach(z => z.classList.remove('on'));
+  if(repaint) repaintOpacity(null);
+}
+(function initZones(){
+  const wrap = $('legendZones');
+  for(let i = 0; i < 4; i++){
+    const z = document.createElement('button');
+    z.type = 'button';
+    z.setAttribute('aria-label', 'Show only quarter ' + (i + 1) + ' of the value range');
+    z.addEventListener('click', () => applyRange(i));
+    wrap.appendChild(z);
+  }
+})();
+$('rangeChip').addEventListener('click', () => clearRange(true));
+
+/* ---------- metric switching + grouped selector ---------- */
+function setMetric(btn){
+  document.querySelectorAll('.mrow').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  currentKey = btn.dataset.key;
+  clearRange(true);
+  setLegend(currentKey);
+  const m = byKey[currentKey];
+  if(map && map.getLayer('counties-fill')){
+    map.setPaintProperty('counties-fill', 'fill-color', m.expr);
+    if(map.getLayer('zips-fill'))
+      map.setPaintProperty('zips-fill', 'fill-color', m.zexpr || m.expr);
+  }
+  refreshLabels();
+  if(sel.props) renderPanelRows();
+  if(window.matchMedia(MOBILE_MQ).matches)
+    document.querySelectorAll('.mgroup').forEach(g => g.classList.add('closed'));
+}
+(function buildSelector(){
+  const wrap = $('mgroups');
+  GROUPS.forEach((gname, gi) => {
+    const g = document.createElement('div');
+    g.className = 'mgroup' + (gi === 0 ? '' : ' closed');
+    const h = document.createElement('button');
+    h.type = 'button'; h.className = 'mghead';
+    h.innerHTML = esc(gname) + '<span class="car">▾</span>';
+    h.addEventListener('click', () => {
+      const wasClosed = g.classList.contains('closed');
+      document.querySelectorAll('.mgroup').forEach(x => x.classList.add('closed'));
+      if(wasClosed) g.classList.remove('closed');   // accordion: one group open at a time
+    });
+    g.appendChild(h);
+    const list = document.createElement('div');
+    list.className = 'mglist';
+    METRICS.filter(m => m.group === gname).forEach(m => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'mrow' + (m.key === currentKey ? ' active' : '');
+      b.dataset.key = m.key;
+      b.title = m.desc || '';
+      b.innerHTML = '<span class="dot"></span>' + esc(m.label);
+      b.addEventListener('click', () => setMetric(b));
+      list.appendChild(b);
+    });
+    g.appendChild(list);
+    wrap.appendChild(g);
+  });
+})();
 setLegend(currentKey);
 
-// Register the PMTiles protocol so MapLibre can stream our baked vector tiles.
-maplibregl.addProtocol('pmtiles', new pmtiles.Protocol().tile);
-
-function hover(layerId){
-  const popup = new maplibregl.Popup({ closeButton:false, closeOnClick:false });
-  map.on('mousemove', layerId, e => {
-    map.getCanvas().style.cursor = 'pointer';
-    const p = e.features[0].properties;
-    popup.setLngLat(e.lngLat).setHTML('<strong>' + (p.cname || '') + '</strong><br>' +
-      byKey[currentKey].label + ': ' + fmt(byKey[currentKey].fmt, p[currentKey])).addTo(map);
-  });
-  map.on('mouseleave', layerId, () => { map.getCanvas().style.cursor = ''; popup.remove(); });
-}
-
-function addLayers(){
-  if(map.getLayer('counties-fill')) return;
-  for(const l of map.getStyle().layers){ if(l.type === 'symbol'){ firstSymbolId = l.id; break; } }
-
-  map.addSource('counties', { type:'vector', url:'pmtiles://counties.pmtiles' });
-  map.addLayer({ id:'counties-fill', type:'fill', source:'counties', 'source-layer':'counties',
-    paint:{ 'fill-color':byKey[currentKey].expr, 'fill-opacity':0.72 } }, firstSymbolId);
-  map.addLayer({ id:'counties-line', type:'line', source:'counties', 'source-layer':'counties',
-    paint:{ 'line-color':'rgba(90,100,110,0.25)', 'line-width':0.3 } }, firstSymbolId);
-
-  if(HAS_ZIPS){
-    map.addSource('zips', { type:'vector', url:'pmtiles://zips.pmtiles' });
-    map.addLayer({ id:'zips-fill', type:'fill', source:'zips', 'source-layer':'zips', minzoom:6,
-      paint:{ 'fill-color':byKey[currentKey].expr, 'fill-opacity':0.82 } }, firstSymbolId);
-    map.addLayer({ id:'zips-line', type:'line', source:'zips', 'source-layer':'zips', minzoom:6,
-      paint:{ 'line-color':'rgba(70,80,90,0.4)', 'line-width':0.5 } }, firstSymbolId);
+/* ---------- stats panel ---------- */
+function percentile(m, v){
+  const q = m.q || [];
+  if(q.length !== 21 || v === null || isNaN(v)) return null;
+  if(v <= q[0]) return 0;
+  if(v >= q[20]) return 100;
+  for(let i = 0; i < 20; i++){
+    if(v >= q[i] && v <= q[i + 1]){
+      const span = q[i + 1] - q[i];
+      return 5 * (i + (span > 0 ? (v - q[i]) / span : 0));
+    }
   }
-  // tracked counties outlined on top
-  map.addLayer({ id:'tracked-line', type:'line', source:'counties', 'source-layer':'counties',
-    filter:['==', ['get','tracked'], true], paint:{ 'line-color':'#111', 'line-width':2 } });
-
-  hover('counties-fill');
-  if(HAS_ZIPS) hover('zips-fill');
-
-  // Click a region to zoom into it (prefer ZIP over county when both are present).
-  map.on('click', (e) => {
-    const layers = (HAS_ZIPS && map.getLayer('zips-fill')) ? ['zips-fill', 'counties-fill'] : ['counties-fill'];
-    const feats = map.queryRenderedFeatures(e.point, { layers });
-    if(!feats.length) return;
-    const f = feats.find(x => x.layer.id === 'zips-fill') || feats[0];
-    const b = geometryBounds(f.geometry);
-    if(b) map.fitBounds(b, { padding: 60, duration: 700, maxZoom: 12 });
+  return null;
+}
+function renderPanelRows(){
+  let html = '';
+  GROUPS.forEach(gname => {
+    let rows = '';
+    METRICS.filter(m => m.group === gname).forEach(m => {
+      const raw = sel.props[m.key];
+      if(raw === undefined || raw === null || raw === '') return;
+      const v = +raw;
+      if(isNaN(v)) return;
+      const pct = sel.isZip ? null : percentile(m, v);
+      rows += '<div class="prow' + (m.key === currentKey ? ' active' : '') + '">' +
+              '<span class="plabel">' + esc(m.label) + '</span>' +
+              '<span class="pval">' + fmt(m.fmt, v) + '</span>' +
+              (pct !== null ? '<span class="ppct">higher than ' + Math.round(pct) +
+               '% of US counties</span>' : '') +
+              '</div>';
+    });
+    // ZIP features don't carry the (state-level) landlord score — look it up.
+    if(gname === 'Taxes & policy' && sel.isZip){
+      const g = GEO.find(x => x.t === 'z' && x.n === sel.cname);
+      const sc = g && g.s ? LANDLORD[g.s.toUpperCase()] : undefined;
+      if(sc !== undefined)
+        rows += '<div class="prow"><span class="plabel">Landlord friendliness (state)</span>' +
+                '<span class="pval">' + fmt('score', sc) + '</span></div>';
+    }
+    if(rows) html += '<div class="pgroup">' + esc(gname) + '</div>' + rows;
   });
-  // Repaint as tiles stream in (keeps the map responsive even if rAF is sluggish).
-  map.on('sourcedata', (e) => { if(e.isSourceLoaded) map.triggerRepaint(); });
-  map.resize();
+  $('panelRows').innerHTML = html ||
+    '<div class="prow"><span class="plabel">No public data for this area.</span></div>';
+}
+function showZipBtn(){
+  if(!HAS_ZIPS || sel.isZip || !sel.cname || sel.cname.length < 4) return false;
+  const st = sel.cname.slice(-2).toLowerCase();
+  return sel.cname.charAt(sel.cname.length - 3) === ' ' && ZIP_STATES.indexOf(st) >= 0;
+}
+const NO_MATCH = '__none__';  // no-data counties carry cname:'', so '' must never be the filter
+function setSelFilters(cname, isZip){
+  if(!map) return;
+  if(map.getLayer('sel-county-line'))
+    map.setFilter('sel-county-line', ['==', ['get', 'cname'], isZip ? NO_MATCH : (cname || NO_MATCH)]);
+  if(map.getLayer('sel-zip-line'))
+    map.setFilter('sel-zip-line', ['==', ['get', 'cname'], isZip ? (cname || NO_MATCH) : NO_MATCH]);
+}
+function indexBounds(cname, isZip){
+  // Authoritative full bbox from the search index — queryRenderedFeatures returns
+  // tile-clipped fragments, so fragment bounds under-frame counties on tile edges.
+  const t = isZip ? 'z' : 'c';
+  const g = GEO.find(x => x.t === t && x.n === cname);
+  return (g && g.b) ? [[g.b[0], g.b[1]], [g.b[2], g.b[3]]] : null;
+}
+function selectFeature(f, boundsOverride){
+  const isZip = f.sourceLayer === 'zips' || f.source === 'zips';
+  sel = { props: f.properties, isZip: isZip, cname: f.properties.cname,
+          bounds: boundsOverride || indexBounds(f.properties.cname, isZip) ||
+                  geometryBounds(f.geometry) };
+  setSelFilters(sel.cname, isZip);
+  $('panelName').textContent = sel.cname;
+  $('panelBadge').hidden = !(sel.props.tracked === true || sel.props.tracked === 'true');
+  renderPanelRows();
+  $('zipDetailBtn').hidden = !showZipBtn();
+  panel.classList.add('open');
+  document.body.classList.add('panel-open');
+}
+function closePanel(){
+  panel.classList.remove('open');
+  document.body.classList.remove('panel-open');
+  sel = { props:null, isZip:false, bounds:null, cname:'' };
+  setSelFilters('', false);
+}
+$('panelClose').addEventListener('click', closePanel);
+$('zoomHereBtn').addEventListener('click', () => {
+  if(sel.bounds) flyToBounds(sel.bounds, sel.isZip ? 12 : 10);
+});
+$('zipDetailBtn').addEventListener('click', () => {
+  if(sel.bounds) flyToBounds(sel.bounds, 12);
+});
+
+/* ---------- camera ---------- */
+const MOBILE_MQ = '(max-width:640px), (max-height:430px)';
+function flyToBounds(b, maxZoom){
+  // When the bottom sheet is open, pad the bottom so the target isn't hidden under it.
+  const sheet = (window.matchMedia(MOBILE_MQ).matches && panel.classList.contains('open'))
+    ? panel.getBoundingClientRect().height : 0;
+  const pad = sheet ? { top: 60, left: 30, right: 30, bottom: 30 + sheet } : 60;
+  let d = 900;
+  try {
+    const cam = map.cameraForBounds(b, { padding: pad });
+    if(cam) d = Math.min(2200, 500 + 350 * Math.abs(cam.zoom - map.getZoom()));
+  } catch(e){}
+  map.fitBounds(b, { padding: pad, maxZoom: maxZoom || 12, duration: d,
+                     easing: easeOutCubic, essential: true });
+}
+function resetView(){
+  pending = null;  // cancel any in-flight search selection — this is a user cancel
+  map.fitBounds(US_BOUNDS, { padding: 20, duration: 900, easing: easeOutCubic });
 }
 
 function geometryBounds(geom){
@@ -170,37 +564,415 @@ function geometryBounds(geom){
   return [[minX, minY], [maxX, maxY]];
 }
 
-function setMetric(btn){
-  document.querySelectorAll('.pill').forEach(p => p.classList.remove('active'));
-  btn.classList.add('active');
-  currentKey = btn.dataset.key;
-  setLegend(currentKey);
-  for(const id of ['counties-fill', 'zips-fill']){
-    if(map.getLayer(id)) map.setPaintProperty(id, 'fill-color', byKey[currentKey].expr);
+/* ---------- hover ---------- */
+function layerPref(){
+  const out = [];
+  if(map.getLayer('zips-fill')) out.push('zips-fill');
+  if(map.getLayer('counties-fill')) out.push('counties-fill');
+  return out;
+}
+function pickFeature(feats){
+  const zf = feats.find(f => f.layer.id === 'zips-fill');
+  const cf = feats.find(f => f.layer.id === 'counties-fill');
+  // County-only metric: the ZIP layer is invisible, so hover/click the county.
+  if(!byKey[currentKey].zexpr) return cf || zf;
+  return (map.getZoom() > 6.3 && zf) ? zf : (cf || zf);
+}
+const tipPopup = new maplibregl.Popup({ closeButton:false, closeOnClick:false, offset:8 });
+function clearHover(){
+  if(hoverRef){ try { map.setFeatureState(hoverRef, { hover:false }); } catch(e){} hoverRef = null; }
+  tipPopup.remove();
+  hideTick();
+}
+function onHoverMove(e){
+  if(dragging) return;
+  const layers = layerPref();
+  if(!layers.length) return;
+  const f = pickFeature(map.queryRenderedFeatures(e.point, { layers: layers }));
+  if(!f || !f.properties.cname){
+    clearHover();
+    map.getCanvas().style.cursor = 'grab';
+    return;
+  }
+  map.getCanvas().style.cursor = 'pointer';
+  const ref = { source: f.source, sourceLayer: f.sourceLayer, id: f.id };
+  if(!hoverRef || hoverRef.id !== ref.id || hoverRef.source !== ref.source){
+    if(hoverRef){ try { map.setFeatureState(hoverRef, { hover:false }); } catch(e){} }
+    try { map.setFeatureState(ref, { hover:true }); } catch(e){}
+    hoverRef = ref;
+  }
+  const m = byKey[currentKey], v = f.properties[m.key];
+  tipPopup.setLngLat(e.lngLat).setHTML(tipHTML(f.properties)).addTo(map);
+  if(v !== undefined && v !== null && !isNaN(v)) showTick(+v);
+  else hideTick();
+}
+const INVESTOR_KEYS = ['cap_rate', 'gross_yield', 'price_to_rent', 'rent'];
+const HEAT_KEYS = ['days_on_market', 'price_cut_share', 'inventory_yoy'];
+function tipHTML(p){
+  const m = byKey[currentKey];
+  let h = '<strong>' + esc(p.cname) + '</strong>';
+  if(currentKey === 'sec8_premium' && p.safmr_2br > 0 && p.rent > 0){
+    const rows = [
+      ['Voucher ceiling (2-bed)', fmt('usd_mo', p.safmr_2br)],
+      ['Voucher ceiling (3-bed)', p.safmr_3br > 0 ? fmt('usd_mo', p.safmr_3br) : 'n/a'],
+      ['Market rent (ZORI)', fmt('usd_mo', p.rent)],
+      ['Premium (2-bed)', fmt('pct', p.sec8_premium)]];
+    return h + '<div class="tiprows">' +
+      rows.map(r => '<span>' + esc(r[0]) + '</span><b>' + r[1] + '</b>').join('') +
+      '</div><div class="tipmore">Ceilings include utilities · Click for all metrics</div>';
+  }
+  if(HEAT_KEYS.indexOf(currentKey) >= 0){
+    const rows = [[m.label, fmt(m.fmt, p[m.key])]];
+    HEAT_KEYS.forEach(k => {
+      if(k !== currentKey && p[k] !== undefined && p[k] !== null)
+        rows.push([byKey[k].label, fmt(byKey[k].fmt, p[k])]);
+    });
+    h += '<div class="tiprows">' +
+         rows.map(r => '<span>' + esc(r[0]) + '</span><b>' + r[1] + '</b>').join('') +
+         '</div>';
+    if(p.listings !== undefined && p.listings !== null)
+      h += '<div class="tipmore">Based on ' + NF.format(Math.round(p.listings)) +
+           ' active listings</div>';
+    return h + '<div class="tipmore">Click for all metrics</div>';
+  }
+  if(INVESTOR_KEYS.indexOf(currentKey) >= 0 && p.rent > 0 && p.home_value > 0){
+    // Reventure-style investor breakdown
+    const gross = Math.round(p.rent * 12);
+    const rows = [[m.label, fmt(m.fmt, p[m.key])],
+                  ['Gross rent income', fmt('usd', gross) + '/yr']];
+    if(p.exp_est !== undefined && p.exp_est !== null){
+      rows.push(['Expenses (est.)', fmt('usd', p.exp_est) + '/yr']);
+      rows.push(['Net rent income', fmt('usd', gross - p.exp_est) + '/yr']);
+    }
+    rows.push(['Home value', fmt('usd', p.home_value)]);
+    h += '<div class="tiprows">' +
+         rows.map(r => '<span>' + esc(r[0]) + '</span><b>' + r[1] + '</b>').join('') +
+         '</div>';
+  } else {
+    h += '<br>' + esc(m.label) + ': ' + fmt(m.fmt, p[m.key]);
+  }
+  return h + '<div class="tipmore">Click for all metrics</div>';
+}
+
+/* ---------- on-map value labels (Reventure-style "43606 · 5.7%") ---------- */
+function shortName(g){
+  if(g.t === 'z') return g.n.slice(4);            // "ZIP 43606" -> "43606"
+  const i = g.n.lastIndexOf(',');                 // "Lucas County, OH" -> "Lucas County"
+  return i > 0 ? g.n.slice(0, i) : g.n;
+}
+function labelFeatures(){
+  const feats = [];
+  // County-only metric: skip ZIP labels and keep county labels at every zoom
+  // (zs:false routes them to the layer without a maxzoom).
+  const countyOnly = !byKey[currentKey].zexpr && !byKey[currentKey].zip_only;
+  for(const g of GEO){
+    if((g.t !== 'c' && g.t !== 'z') || !g.c) continue;
+    if(countyOnly && g.t === 'z') continue;
+    const v = (g.v || {})[currentKey];
+    const st = g.t === 'c' ? g.n.slice(-2).toLowerCase() : '';
+    feats.push({ type:'Feature', geometry:{ type:'Point', coordinates:g.c },
+      properties:{ t: g.t,
+        zs: !countyOnly && g.t === 'c' && ZIP_STATES.indexOf(st) >= 0,
+        label: shortName(g) +
+          (v !== undefined && v !== null ? '\n' + fmt(byKey[currentKey].fmt, v) : '') } });
+  }
+  return { type:'FeatureCollection', features: feats };
+}
+function ensureLabels(){
+  if(!map || !GEO.length || !map.getLayer('counties-fill') || map.getSource('labels')) return;
+  let fontStack = null, fallbackStack = null;
+  try {
+    for(const l of map.getStyle().layers){
+      if(l.type === 'symbol' && l.layout && l.layout['text-font']){
+        const f = l.layout['text-font'];
+        if(!Array.isArray(f)) continue;
+        if(!/italic/i.test(f.join(' '))){ fontStack = f; break; }  // upright, not water-label italics
+        if(!fallbackStack) fallbackStack = f;
+      }
+    }
+  } catch(e){}
+  fontStack = fontStack || fallbackStack || ['Noto Sans Regular'];
+  map.addSource('labels', { type:'geojson', data: labelFeatures() });
+  const base = {
+    type:'symbol', source:'labels',
+    layout:{ 'text-field':['get','label'], 'text-font':fontStack,
+             'text-size':['interpolate', ['linear'], ['zoom'], 5, 10, 9, 13],
+             'text-line-height':1.2, 'text-padding':4, 'text-max-width':10 },
+    paint:{ 'text-color':'#1b1f23', 'text-halo-color':'rgba(255,255,255,0.92)',
+            'text-halo-width':1.4 }
+  };
+  // County labels hide where ZIP labels take over (tracked states only).
+  map.addLayer(Object.assign({}, base, { id:'labels-county', minzoom:5,
+    filter:['all', ['==', ['get','t'], 'c'], ['!=', ['get','zs'], true]] }));
+  // Handoff at 6.6 — the exact zoom where zips-fill reaches full opacity and the
+  // legend flips to the ZIP scale, so printed values always match the fills.
+  map.addLayer(Object.assign({}, base, { id:'labels-county-zs', minzoom:5, maxzoom:6.6,
+    filter:['all', ['==', ['get','t'], 'c'], ['==', ['get','zs'], true]] }));
+  map.addLayer(Object.assign({}, base, { id:'labels-zip', minzoom:6.6,
+    filter:['==', ['get','t'], 'z'] }));
+}
+function refreshLabels(){
+  const src = map && map.getStyle() && map.getSource('labels');
+  if(src) src.setData(labelFeatures());
+}
+
+/* ---------- search ---------- */
+let GEO = [], results = [], activeIdx = -1;
+// DATA_V busts browser caches after each rebuild — cached byte-range responses
+// from an older tile file otherwise corrupt reads against the new one.
+const DATA_V = '202607070913';
+fetch('geo_index.json?v=' + DATA_V)
+  .then(r => r.ok ? r.json() : [])
+  .then(d => { GEO = d || []; renderChips(); ensureLabels(); })
+  .catch(() => {});
+function renderChips(){
+  const aliases = GEO.filter(g => g.t === 'a');
+  const wrap = $('chips');
+  wrap.innerHTML = '';
+  aliases.forEach(a => {
+    const b = document.createElement('button');
+    b.className = 'chip';
+    b.textContent = a.n;
+    b.addEventListener('click', () => chooseEntry(a));
+    wrap.appendChild(b);
+  });
+  wrap.hidden = !aliases.length;
+}
+function searchScore(g, q){
+  if(/^\d+$/.test(q))
+    return (g.t === 'z' && g.n.slice(4).indexOf(q) === 0) ? 3 : 0;
+  const name = g.n.toLowerCase();
+  if(name.indexOf(q) === 0 || name.replace(' county,', ',').indexOf(q) === 0) return 3;
+  if(name.split(/[\s,]+/).some(w => w.indexOf(q) === 0)) return 2;
+  if(name.indexOf(q) >= 0) return 1;
+  return 0;
+}
+function hideResults(){ sresults.hidden = true; results = []; activeIdx = -1; }
+function paintActive(){
+  Array.prototype.forEach.call(sresults.children, (li, i) =>
+    li.classList.toggle('active', i === activeIdx));
+}
+function renderResults(){
+  if(!results.length){ hideResults(); return; }
+  activeIdx = 0;
+  sresults.innerHTML = results.map((g, i) => {
+    const sub = g.t === 'z' ? (g.s || '') : (g.t === 'a' ? 'your market' : '');
+    return '<li data-i="' + i + '"' + (i === 0 ? ' class="active"' : '') + '>' +
+           '<span>' + esc(g.n) + '</span>' +
+           (sub ? '<span class="sub">' + esc(sub) + '</span>' : '') + '</li>';
+  }).join('');
+  sresults.hidden = false;
+}
+searchBox.addEventListener('input', () => {
+  const q = searchBox.value.trim().toLowerCase();
+  if(q.length < 2){ hideResults(); return; }
+  const scored = [];
+  for(const g of GEO){
+    const s = searchScore(g, q);
+    if(s > 0) scored.push([s, g]);
+  }
+  scored.sort((a, b) => b[0] - a[0] || a[1].n.localeCompare(b[1].n));
+  results = scored.slice(0, 8).map(r => r[1]);
+  renderResults();
+});
+searchBox.addEventListener('keydown', e => {
+  if(sresults.hidden || !results.length) return;
+  if(e.key === 'ArrowDown'){ e.preventDefault(); activeIdx = (activeIdx + 1) % results.length; paintActive(); }
+  else if(e.key === 'ArrowUp'){ e.preventDefault(); activeIdx = (activeIdx - 1 + results.length) % results.length; paintActive(); }
+  else if(e.key === 'Enter'){ e.preventDefault(); if(results[activeIdx]) chooseEntry(results[activeIdx]); }
+});
+searchBox.addEventListener('blur', () => setTimeout(hideResults, 150));
+sresults.addEventListener('mousedown', e => {
+  const li = e.target.closest('li');
+  if(!li) return;
+  e.preventDefault();
+  chooseEntry(results[+li.dataset.i]);
+});
+function chooseEntry(g){
+  hideResults();
+  searchBox.value = g.n;
+  searchBox.blur();
+  if(!map || !g.b) return;
+  const isZip = g.t === 'z';
+  const cname = g.cname || g.n;
+  const bounds = [[g.b[0], g.b[1]], [g.b[2], g.b[3]]];
+  setSelFilters(cname, isZip);
+  flyToBounds(bounds, isZip ? 12 : 9);
+  pending = { cname: cname, isZip: isZip, bounds: bounds, tries: 3 };
+  map.once('idle', resolvePending);
+}
+function resolvePending(){
+  if(!pending) return;
+  const src = pending.isZip ? 'zips' : 'counties';
+  let feats = [];
+  try {
+    feats = map.querySourceFeatures(src, {
+      sourceLayer: src, filter: ['==', ['get', 'cname'], pending.cname] });
+  } catch(e){}
+  if(feats.length){
+    selectFeature({ properties: feats[0].properties, geometry: feats[0].geometry,
+                    source: src, sourceLayer: src }, pending.bounds);
+    pending = null;
+  } else if(--pending.tries > 0){
+    map.once('idle', resolvePending);
+  } else {
+    pending = null;
   }
 }
 
-let map;
+/* ---------- coach mark ---------- */
+function dismissCoach(){
+  if(!coach.classList.contains('show')) return;
+  coach.classList.remove('show');
+  try { localStorage.setItem('remonMapHint', '1'); } catch(e){}
+}
+(function initCoach(){
+  let seen = false;
+  try { seen = !!localStorage.getItem('remonMapHint'); } catch(e){}
+  if(!seen){
+    setTimeout(() => coach.classList.add('show'), 800);
+    setTimeout(dismissCoach, 6800);
+  }
+})();
+
+/* ---------- info popover ---------- */
+$('infoBtn').addEventListener('click', () => { infopop.hidden = !infopop.hidden; });
+
+/* ---------- veil ---------- */
+let veilDropped = false;
+function dropVeil(){
+  if(veilDropped) return;
+  veilDropped = true;
+  const v = $('veil');
+  if(v){ v.style.opacity = '0'; setTimeout(() => v.remove(), 600); }
+}
+setTimeout(dropVeil, 4000);
+
+/* ---------- map ---------- */
+maplibregl.addProtocol('pmtiles', new pmtiles.Protocol().tile);
+
+function addLayers(){
+  if(map.getLayer('counties-fill')) return;
+  for(const l of map.getStyle().layers){ if(l.type === 'symbol'){ firstSymbolId = l.id; break; } }
+
+  map.addSource('counties', { type:'vector', url:'pmtiles://counties.pmtiles?v=' + DATA_V, promoteId:'cname' });
+  map.addLayer({ id:'counties-fill', type:'fill', source:'counties', 'source-layer':'counties',
+    paint:{ 'fill-color': byKey[currentKey].expr,
+            'fill-opacity': countiesFillOpacity(null) } }, firstSymbolId);
+  map.addLayer({ id:'counties-line', type:'line', source:'counties', 'source-layer':'counties',
+    paint:{ 'line-color': ['case', ['boolean', ['feature-state', 'hover'], false],
+                           '#1b1f23', 'rgba(90,100,110,0.25)'],
+            'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2, 0.3] } },
+    firstSymbolId);
+
+  if(HAS_ZIPS){
+    map.addSource('zips', { type:'vector', url:'pmtiles://zips.pmtiles?v=' + DATA_V, promoteId:'cname' });
+    map.addLayer({ id:'zips-fill', type:'fill', source:'zips', 'source-layer':'zips', minzoom:5.5,
+      paint:{ 'fill-color': byKey[currentKey].zexpr || byKey[currentKey].expr,
+              'fill-opacity': byKey[currentKey].zexpr ? zipsFillOpacity(null) : 0 } },
+      firstSymbolId);
+    map.addLayer({ id:'zips-line', type:'line', source:'zips', 'source-layer':'zips', minzoom:5.5,
+      paint:{ 'line-color':'rgba(70,80,90,0.4)',
+              'line-opacity': ['interpolate', ['linear'], ['zoom'], 5.8, 0, 6.8, 0.4],
+              'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.3, 10, 0.9] } },
+      firstSymbolId);
+  }
+
+  // tracked counties outlined on top, selection outlines above everything
+  map.addLayer({ id:'tracked-line', type:'line', source:'counties', 'source-layer':'counties',
+    filter:['==', ['get','tracked'], true], paint:{ 'line-color':'#111', 'line-width':2 } });
+  map.addLayer({ id:'sel-county-line', type:'line', source:'counties', 'source-layer':'counties',
+    filter:['==', ['get','cname'], NO_MATCH],
+    paint:{ 'line-color':'#1f6feb', 'line-width':2.5 } });
+  if(HAS_ZIPS){
+    map.addLayer({ id:'sel-zip-line', type:'line', source:'zips', 'source-layer':'zips',
+      filter:['==', ['get','cname'], NO_MATCH],
+      paint:{ 'line-color':'#1f6feb', 'line-width':2.5 } });
+  }
+
+  // Repaint as tiles stream in (keeps the map responsive even if rAF is sluggish).
+  map.on('sourcedata', e => { if(e.isSourceLoaded) map.triggerRepaint(); });
+  ensureLabels();
+  map.resize();
+}
+
 try {
   map = new maplibregl.Map({
     container: 'map',
     style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
-    center: [-96, 38.6], zoom: 3.4, maxZoom: 13, minZoom: 2, dragRotate: false });
-  map.addControl(new maplibregl.NavigationControl({ showCompass:false }), 'top-right');
+    bounds: US_BOUNDS, fitBoundsOptions: { padding: 20 },
+    maxZoom: 13, minZoom: 2, dragRotate: false,
+    maxBounds: [[-190, 8], [-45, 75]] });
+  map.addControl(new maplibregl.NavigationControl({ showCompass:false }), 'bottom-right');
+  map.scrollZoom.setWheelZoomRate(1 / 600);
+  map.touchZoomRotate.disableRotation();
+
   map.on('load', addLayers);
-  // The 'load' event can be unreliable with some vector styles, so also poll
-  // until the style is ready and add the data layers then.
+  // Both the 'load' event AND isStyleLoaded() are unreliable with some vector
+  // styles, so keep attempting to add the data layers until it sticks
+  // (addLayer throws while the style is still loading; that's the retry signal).
   const _iv = setInterval(() => {
-    if(map.isStyleLoaded()){ addLayers(); if(map.getLayer('counties-fill')) clearInterval(_iv); }
+    try { addLayers(); } catch(e){}
+    if(map.getLayer('counties-fill')) clearInterval(_iv);
   }, 250);
-  setTimeout(() => clearInterval(_iv), 20000);
-  document.getElementById('resetBtn').onclick = () =>
-    map.flyTo({ center:[-96, 38.6], zoom:3.4, duration:800 });
-  // Kick the render loop a few times so the map paints immediately on load.
-  [120, 500, 1200, 2500, 4000].forEach(t =>
-    setTimeout(() => { try { map.resize(); map.triggerRepaint(); } catch(e){} }, t));
+  setTimeout(() => clearInterval(_iv), 60000);
+
+  map.once('idle', dropVeil);
+  // Some environments stall the initial render loop entirely (blank canvas, no
+  // 'idle'). Kick resize+repaint until the first idle, then stop — bounded, so
+  // it can't burn battery like an unconditional timer would.
+  let _awake = false;
+  map.once('idle', () => { _awake = true; });
+  const _kick = setInterval(() => {
+    if(_awake){ clearInterval(_kick); return; }
+    try { map.resize(); map.triggerRepaint(); } catch(e){}
+  }, 400);
+  setTimeout(() => clearInterval(_kick), 8000);
+  // Re-render the legend when the county↔ZIP scale changes. The check is
+  // viewport-dependent (are ZIP polygons on screen?), so sync on pan too.
+  let legendLevel = null;
+  const syncLegend = () => {
+    const lvl = zipLegendActive() ? 'z' : 'c';
+    if(lvl !== legendLevel){ legendLevel = lvl; setLegend(currentKey); }
+  };
+  // zoomend (not zoom): the check queries rendered features, too heavy per-frame.
+  map.on('zoomend', syncLegend);
+  map.on('moveend', syncLegend);
+  map.on('idle', syncLegend);  // tiles can finish streaming after moveend
+  map.getCanvas().style.cursor = 'grab';
+  map.on('dragstart', () => { dragging = true; map.getCanvas().style.cursor = 'grabbing'; });
+  map.on('dragend', () => { dragging = false; map.getCanvas().style.cursor = 'grab'; });
+  window.addEventListener('resize', () => map.resize());
+
+  if(CAN_HOVER){
+    map.on('mousemove', onHoverMove);
+    map.getCanvas().addEventListener('mouseleave', () => {
+      clearHover();
+      map.getCanvas().style.cursor = 'grab';
+    });
+  }
+
+  map.on('click', e => {
+    dismissCoach();
+    infopop.hidden = true;
+    pending = null;
+    const layers = layerPref();
+    const f = layers.length ? pickFeature(map.queryRenderedFeatures(e.point, { layers: layers })) : null;
+    if(!f || !f.properties.cname){ closePanel(); return; }
+    selectFeature(f);
+  });
+
+  $('resetBtn').addEventListener('click', () => { infopop.hidden = true; resetView(); });
+  document.addEventListener('keydown', e => {
+    if(e.key !== 'Escape') return;
+    if(!sresults.hidden){ hideResults(); return; }
+    if(!infopop.hidden){ infopop.hidden = true; return; }
+    if(panel.classList.contains('open')){ closePanel(); return; }
+    resetView();
+  });
 } catch(e){
-  document.getElementById('map').innerHTML =
+  dropVeil();
+  $('map').innerHTML =
     '<p style="padding:24px;color:#5b6670">The map could not load. Please refresh the page.</p>';
 }
 </script>
