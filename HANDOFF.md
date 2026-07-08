@@ -136,7 +136,7 @@ Research-verified (5-agent workflow) then built:
   (header validation + per-vintage fallback); HUD's "01XXX" pseudo-county rows filtered
   from the committed PSH file (3,126 real counties).
 
-**Not yet deployed** — needs the usual PAT push (see Deploying below).
+**DEPLOYED 2026-07-07** (commit 11c586b) — live at https://domrodd23.github.io/real-estate-monitor/map.html and verified (byte-range 206s, all 29 metrics, 5 ZIP states in the live index). Monthly CI now runs on the 17th; its next run is the first cloud exercise of the realtor/irs/bls fetchers — check that Actions log once.
 
 **Still relevant if revisited:** Mapbox GL JS with a free token was offered and declined
 (free PMTiles path chosen). City-name search beyond the tracked-market aliases would need
