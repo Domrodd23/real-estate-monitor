@@ -67,6 +67,39 @@
   .mrow .dot { width:8px; height:8px; border-radius:50%; border:2px solid #b6bfc9; flex:0 0 auto; }
   .mrow.active .dot { border-color:#fff; background:#fff; }
 
+  /* ---- filters ---- */
+  .fbtn { width:100%; margin-top:8px; border:1px solid var(--line); background:#f6f8fa;
+          color:#33404d; border-radius:8px; padding:7px 12px; font-size:.85rem;
+          font-weight:600; cursor:pointer; text-align:left; }
+  .fbtn:hover { border-color:var(--accent); color:var(--accent); }
+  .fpanel { margin-top:8px; border-top:1px solid var(--line); padding-top:8px; }
+  .frow { padding:6px 0 2px; }
+  .frow .fhead { display:flex; align-items:center; justify-content:space-between;
+                 font-size:.8rem; font-weight:600; color:#33404d; }
+  .frow .fx { border:none; background:none; color:var(--muted); cursor:pointer;
+              font-size:.9rem; padding:0 4px; }
+  .frow .fx:hover { color:var(--ink); }
+  .frow .fvals { display:flex; justify-content:space-between; font-size:.76rem;
+                 color:var(--muted); font-variant-numeric:tabular-nums; margin-top:2px; }
+  .frange { position:relative; height:22px; margin-top:2px; }
+  .frange .ftrack { position:absolute; top:9px; left:0; right:0; height:4px;
+                    background:var(--line); border-radius:2px; }
+  .frange .fsel { position:absolute; top:9px; height:4px; background:var(--accent);
+                  border-radius:2px; }
+  .frange input[type=range]{ position:absolute; top:0; left:0; width:100%; height:22px;
+    margin:0; -webkit-appearance:none; appearance:none; background:none; pointer-events:none; }
+  .frange input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; appearance:none;
+    pointer-events:auto; width:16px; height:16px; border-radius:50%; background:#fff;
+    border:2px solid var(--accent); box-shadow:0 1px 3px rgba(0,0,0,.25); cursor:pointer; }
+  .frange input[type=range]::-moz-range-thumb { pointer-events:auto; width:14px; height:14px;
+    border-radius:50%; background:#fff; border:2px solid var(--accent); cursor:pointer; }
+  .fadd { display:flex; gap:8px; margin-top:8px; }
+  .fadd select { flex:1; border:1px solid var(--line); border-radius:8px; padding:6px 8px;
+                 font-size:.82rem; background:#fff; color:#33404d; }
+  .freset { border:1px solid var(--line); background:#fff; color:#33404d; border-radius:8px;
+            padding:6px 12px; font-size:.82rem; cursor:pointer; }
+  .freset:hover { border-color:var(--accent); color:var(--accent); }
+
   /* ---- legend card ---- */
   .legend-card { position:fixed; bottom:26px; left:12px; z-index:5; width:300px;
                  max-width:calc(100vw - 24px); background:#fff; border-radius:10px;
@@ -179,6 +212,16 @@
     </div>
     <div class="chips" id="chips" hidden></div>
     <div class="mgroups" id="mgroups"></div>
+    <button class="fbtn" id="filterBtn" type="button">⚲ Filters<span id="filterCount"></span></button>
+    <div class="fpanel" id="filterPanel" hidden>
+      <div id="filterRows"></div>
+      <div class="fadd">
+        <select id="filterAdd" aria-label="Add a data filter">
+          <option value="">+ Add data filter…</option>
+        </select>
+        <button class="freset" id="filterReset" type="button">Reset</button>
+      </div>
+    </div>
   </div>
 
   <div class="legend-card" id="legendCard">
@@ -331,28 +374,47 @@ function showTick(v){
 }
 function hideTick(){ tick.style.display = 'none'; }
 
-/* ---------- fill-opacity expressions (hover + cross-fade + range filter) ---------- */
-function countiesFillOpacity(cond){
-  const full = ['case', ['boolean', ['feature-state', 'hover'], false], 0.88, 0.72];
-  return cond ? ['case', cond, full, 0.12] : full;
+/* ---------- fill-opacity expressions (hover + cross-fade + filters) ----------
+   Opacity THINS as you zoom in so the basemap's streets and neighborhood names
+   read through the shading (the Reventure/Zillow feel). MapLibre requires the
+   zoom interpolate at the TOP level, so filter/hover cases live in the outputs. */
+function _op(cond, hov, base, dim){
+  const e = ['case', ['boolean', ['feature-state', 'hover'], false], hov, base];
+  return cond ? ['case', cond, e, dim] : e;
 }
-function zipsFillOpacity(cond){
-  const full = ['case', ['boolean', ['feature-state', 'hover'], false], 0.95, 0.82];
-  const out = cond ? ['case', cond, full, 0.12] : full;
-  return ['interpolate', ['linear'], ['zoom'], 5.6, 0, 6.6, out];
+function fillOpacityExpr(layer, cond){
+  if(layer === 'counties')
+    return ['interpolate', ['linear'], ['zoom'],
+            8, _op(cond, 0.88, 0.72, 0.12),
+            11, _op(cond, 0.7, 0.52, 0.08)];
+  return ['interpolate', ['linear'], ['zoom'],
+          5.6, 0,
+          6.6, _op(cond, 0.95, 0.82, 0.12),
+          9.5, _op(cond, 0.9, 0.74, 0.10),
+          11.5, _op(cond, 0.78, 0.55, 0.08)];
 }
 function repaintOpacity(ccond, zcond){
   if(!map || !map.getLayer('counties-fill')) return;
-  map.setPaintProperty('counties-fill', 'fill-opacity', countiesFillOpacity(ccond));
+  map.setPaintProperty('counties-fill', 'fill-opacity', fillOpacityExpr('counties', ccond));
   // County-only metrics (no zexpr): hide the ZIP layer entirely, otherwise it
   // covers real county data with an opaque gray "no data" blanket.
   if(map.getLayer('zips-fill'))
     map.setPaintProperty('zips-fill', 'fill-opacity',
-      byKey[currentKey].zexpr ? zipsFillOpacity(zcond || ccond) : 0);
+      byKey[currentKey].zexpr ? fillOpacityExpr('zips', zcond || ccond) : 0);
 }
 
-/* ---------- legend range filter ---------- */
-function zoneEls(){ return Array.prototype.slice.call($('legendZones').children); }
+/* ---------- filters (multi-metric panel + legend quartile zones) ---------- */
+let filters = [];  // [{key, lo, hi}] — AND-combined, persist across metric switches
+function filterCond(f){
+  // Thumbs parked at the slider ends are OPEN-ended — bounds are the p2/p98
+  // ramp stops, and the extreme tails beyond them must stay includable.
+  // Epsilon: range inputs quantize to step, drifting floats off the exact ends.
+  const eps = ((f.max - f.min) || 1) * 1e-4;
+  const cond = ['all', ['has', f.key]];
+  if(f.lo > f.min + eps) cond.push(['>=', ['get', f.key], f.lo]);
+  if(f.hi < f.max - eps) cond.push(['<=', ['get', f.key], f.hi]);
+  return cond;
+}
 function rangeCond(qs, i){
   // Outer zones are open-ended so the extreme ~2% beyond the color-ramp stops stay lit.
   if(!qs || qs.length !== 5) return null;
@@ -361,15 +423,30 @@ function rangeCond(qs, i){
   if(i < 3) cond.push(['<=', ['get', currentKey], qs[i + 1]]);
   return cond;
 }
+function repaintFilters(){
+  const m = byKey[currentKey];
+  const cc = [], zc = [];
+  if(rangeIdx !== null){
+    const c = rangeCond((m.legend || {}).qs, rangeIdx);
+    // Each layer filters by its own distribution's quartiles (county vs ZIP scale).
+    const z = rangeCond(((m.zlegend || m.legend) || {}).qs, rangeIdx) || c;
+    if(c){ cc.push(c); zc.push(z); }
+  }
+  filters.forEach(f => { const c = filterCond(f); cc.push(c); zc.push(c); });
+  repaintOpacity(cc.length ? ['all'].concat(cc) : null,
+                 zc.length ? ['all'].concat(zc) : null);
+  const n = filters.length;
+  $('filterCount').textContent = n ? ' (' + n + ')' : '';
+}
+
+/* ---------- legend range filter ---------- */
+function zoneEls(){ return Array.prototype.slice.call($('legendZones').children); }
 function applyRange(i){
   const m = byKey[currentKey];
-  const ccond = rangeCond((m.legend || {}).qs, i);
-  if(!ccond) return;
+  if(!rangeCond((m.legend || {}).qs, i)) return;
   if(rangeIdx === i){ clearRange(true); return; }
   rangeIdx = i;
-  // Each layer filters by its own distribution's quartiles (county vs ZIP scale).
-  const zcond = rangeCond((m.zlegend || m.legend || {}).qs, i) || ccond;
-  repaintOpacity(ccond, zcond);
+  repaintFilters();
   $('rangeChip').hidden = false;
   zoneEls().forEach((z, j) => z.classList.toggle('on', j === i));
 }
@@ -377,7 +454,7 @@ function clearRange(repaint){
   rangeIdx = null;
   $('rangeChip').hidden = true;
   zoneEls().forEach(z => z.classList.remove('on'));
-  if(repaint) repaintOpacity(null);
+  if(repaint) repaintFilters();
 }
 (function initZones(){
   const wrap = $('legendZones');
@@ -390,6 +467,90 @@ function clearRange(repaint){
   }
 })();
 $('rangeChip').addEventListener('click', () => clearRange(true));
+
+/* ---------- multi-metric filter panel ---------- */
+function metricBounds(m){
+  // Slider bounds span BOTH geography levels' p2–p98 so ZIP extremes fit.
+  const lo = Math.min(m.zmin, m.zzmin !== undefined ? m.zzmin : m.zmin);
+  const hi = Math.max(m.zmax, m.zzmax !== undefined ? m.zzmax : m.zmax);
+  return [lo, hi];
+}
+function buildFilterSelect(){
+  const sel = $('filterAdd');
+  while(sel.options.length > 1) sel.remove(1);
+  const used = {};
+  filters.forEach(f => used[f.key] = true);
+  GROUPS.forEach(gname => {
+    const og = document.createElement('optgroup');
+    og.label = gname;
+    METRICS.filter(m => m.group === gname && !used[m.key]).forEach(m => {
+      const o = document.createElement('option');
+      o.value = m.key; o.textContent = m.label;
+      og.appendChild(o);
+    });
+    if(og.children.length) sel.appendChild(og);
+  });
+}
+function renderFilterRows(){
+  const wrap = $('filterRows');
+  wrap.innerHTML = '';
+  filters.forEach((f, i) => {
+    const m = byKey[f.key];
+    const row = document.createElement('div');
+    row.className = 'frow';
+    row.innerHTML =
+      '<div class="fhead"><span>' + esc(m.label) + '</span>' +
+      '<button class="fx" type="button" title="Remove filter">✕</button></div>' +
+      '<div class="frange"><div class="ftrack"></div><div class="fsel"></div>' +
+      '<input type="range" class="flo"><input type="range" class="fhi"></div>' +
+      '<div class="fvals"><span class="vlo"></span><span class="vhi"></span></div>';
+    const lo = row.querySelector('.flo'), hi = row.querySelector('.fhi');
+    const step = (f.max - f.min) / 100 || 1;
+    [lo, hi].forEach(inp => { inp.min = f.min; inp.max = f.max; inp.step = step; });
+    lo.value = f.lo; hi.value = f.hi;
+    const sync = () => {
+      f.lo = Math.min(+lo.value, +hi.value);
+      f.hi = Math.max(+lo.value, +hi.value);
+      row.querySelector('.vlo').textContent = fmt(m.fmt, f.lo);
+      row.querySelector('.vhi').textContent = fmt(m.fmt, f.hi);
+      const span = (f.max - f.min) || 1;
+      const selEl = row.querySelector('.fsel');
+      selEl.style.left = (100 * (f.lo - f.min) / span) + '%';
+      selEl.style.right = (100 * (f.max - f.hi) / span) + '%';
+    };
+    let raf = null;
+    const onInput = () => {
+      sync();
+      if(!raf) raf = requestAnimationFrame(() => { raf = null; repaintFilters(); });
+    };
+    lo.addEventListener('input', onInput);
+    hi.addEventListener('input', onInput);
+    row.querySelector('.fx').addEventListener('click', () => {
+      filters.splice(i, 1);
+      renderFilterRows(); buildFilterSelect(); repaintFilters();
+    });
+    sync();
+    wrap.appendChild(row);
+  });
+}
+$('filterBtn').addEventListener('click', () => {
+  const p = $('filterPanel');
+  p.hidden = !p.hidden;
+  if(!p.hidden) buildFilterSelect();
+});
+$('filterAdd').addEventListener('change', () => {
+  const key = $('filterAdd').value;
+  if(!key) return;
+  const m = byKey[key];
+  const b = metricBounds(m);
+  filters.push({ key: key, lo: b[0], hi: b[1], min: b[0], max: b[1] });
+  $('filterAdd').value = '';
+  renderFilterRows(); buildFilterSelect(); repaintFilters();
+});
+$('filterReset').addEventListener('click', () => {
+  filters = [];
+  renderFilterRows(); buildFilterSelect(); repaintFilters();
+});
 
 /* ---------- metric switching + grouped selector ---------- */
 function setMetric(btn){
@@ -858,7 +1019,7 @@ function addLayers(){
   map.addSource('counties', { type:'vector', url:'pmtiles://counties.pmtiles?v=' + DATA_V, promoteId:'cname' });
   map.addLayer({ id:'counties-fill', type:'fill', source:'counties', 'source-layer':'counties',
     paint:{ 'fill-color': byKey[currentKey].expr,
-            'fill-opacity': countiesFillOpacity(null) } }, firstSymbolId);
+            'fill-opacity': fillOpacityExpr('counties', null) } }, firstSymbolId);
   map.addLayer({ id:'counties-line', type:'line', source:'counties', 'source-layer':'counties',
     paint:{ 'line-color': ['case', ['boolean', ['feature-state', 'hover'], false],
                            '#1b1f23', 'rgba(90,100,110,0.25)'],
@@ -869,7 +1030,7 @@ function addLayers(){
     map.addSource('zips', { type:'vector', url:'pmtiles://zips.pmtiles?v=' + DATA_V, promoteId:'cname' });
     map.addLayer({ id:'zips-fill', type:'fill', source:'zips', 'source-layer':'zips', minzoom:5.5,
       paint:{ 'fill-color': byKey[currentKey].zexpr || byKey[currentKey].expr,
-              'fill-opacity': byKey[currentKey].zexpr ? zipsFillOpacity(null) : 0 } },
+              'fill-opacity': byKey[currentKey].zexpr ? fillOpacityExpr('zips', null) : 0 } },
       firstSymbolId);
     map.addLayer({ id:'zips-line', type:'line', source:'zips', 'source-layer':'zips', minzoom:5.5,
       paint:{ 'line-color':'rgba(70,80,90,0.4)',
@@ -899,7 +1060,9 @@ function addLayers(){
 try {
   map = new maplibregl.Map({
     container: 'map',
-    style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+    // Voyager: richer basemap than positron — neighborhood names, more streets,
+    // parks — which show through the (zoom-thinned) choropleth like Reventure.
+    style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
     bounds: US_BOUNDS, fitBoundsOptions: { padding: 20 },
     maxZoom: 13, minZoom: 2, dragRotate: false,
     maxBounds: [[-190, 8], [-45, 75]] });
