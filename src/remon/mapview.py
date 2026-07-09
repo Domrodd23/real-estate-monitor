@@ -52,6 +52,12 @@ METRICS = [
      "scale": "RdYlGn", "diverging": True, "group": "Popular",
      "desc": "Zillow's forecast of home-value growth over the next 12 months. "
              "ZIP-level only — counties show no data."},
+    {"key": "growth_score", "label": "Growth score (est.)", "fmt": "score100",
+     "scale": "growth", "group": "Popular",
+     "desc": "0–100 composite of public fundamentals: migration, affordability "
+             "headroom, 5-yr momentum, market tightness, incomes (+ Zillow's "
+             "forecast for ZIPs). Percentile-ranked, transparent weights — a "
+             "screening aid, NOT a prediction."},
     # -- Price trends --------------------------------------------------------
     {"key": "home_value_5y_pct", "label": "5-yr price change", "fmt": "pct",
      "scale": "RdYlGn", "diverging": True, "group": "Price trends",
@@ -209,6 +215,8 @@ def _fmt(kind, v):
         return f"{v:.0f}/10"
     if kind == "per1ku":
         return f"{v:,.0f}/1k"
+    if kind == "score100":
+        return f"{v:.0f}/100"
     return str(v)
 
 
@@ -248,6 +256,41 @@ def _load_geojson(config: Config):
         path = cache_path(raw, "us_counties_geojson", "json")
         path.write_text(text, encoding="utf-8")
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+# Growth score: signed weights over percentile ranks of public fundamentals.
+# Negative weight = lower is better (e.g. cheap vs income = appreciation headroom).
+# Weights are renormalized over the components an area actually has; areas with
+# under half the total weight available get no score rather than a shaky one.
+GROWTH_W_COUNTY = {
+    "net_dom_mig_rate": 20, "agi_net_percap": 10, "inbound_movers_pct": 5,
+    "value_income_ratio": -20, "home_value_5y_pct": 15,
+    "months_supply": -10, "inventory_yoy": -10, "median_income": 10,
+}
+GROWTH_W_ZIP = {
+    "home_value_fc_12m": 20, "value_income_ratio": -20, "home_value_5y_pct": 15,
+    "inbound_movers_pct": 10, "days_on_market": -10, "inventory_yoy": -10,
+    "price_cut_share": -10, "median_income": 5,
+}
+GROWTH_MIN_WEIGHT = 50  # of 100
+
+
+def _growth_score(vals: pd.DataFrame, weights: dict) -> pd.Series:
+    """0–100 weighted mean of percentile ranks (NaN below GROWTH_MIN_WEIGHT)."""
+    num = pd.Series(0.0, index=vals.index)
+    den = pd.Series(0.0, index=vals.index)
+    for k, w in weights.items():
+        col = pd.to_numeric(vals.get(k), errors="coerce") if k in vals.columns else None
+        if col is None or col.notna().sum() < 20:
+            continue
+        r = col.rank(pct=True)
+        if w < 0:
+            r = 1.0 - r
+        has = col.notna()
+        num += (r * abs(w)).fillna(0.0)
+        den += has * abs(w)
+    score = (num / den.where(den > 0) * 100).where(den >= GROWTH_MIN_WEIGHT)
+    return score.round(0)
 
 
 MOVERS_MIN_POP = 500  # below this ACS denominator, Movers-in % is sampling noise
@@ -478,7 +521,10 @@ def build_county_table(config: Config) -> pd.DataFrame:
 
     tracked = {m.county.fips for m in config.markets.values()}
     df["is_tracked"] = df.index.isin(tracked)
-    log.info("[map] built county table: %d counties", len(df))
+    # Composite growth score LAST — it ranks across every joined fundamental.
+    df["growth_score"] = _growth_score(df, GROWTH_W_COUNTY)
+    log.info("[map] built county table: %d counties (%d scored)",
+             len(df), int(df["growth_score"].notna().sum()))
     return df
 
 
@@ -504,6 +550,8 @@ def _prep(df: pd.DataFrame, m: Dict):
 # read at a glance than a rainbow (adjacent areas separate cleanly, extremes pop).
 PALETTE_SEQ = ["#2166ac", "#4393c3", "#92c5de", "#f7f3e8", "#f4a582", "#d6604d", "#b2182b"]
 PALETTE_DIV = ["#b2182b", "#d6604d", "#f4a582", "#f7f3e8", "#a6dba0", "#5aae61", "#1b7837"]
+# Growth score: cream -> deep green (the Reventure growth-map look).
+PALETTE_GROWTH = ["#f7f3e8", "#e3edcd", "#c5e0a5", "#9ccb78", "#6db354", "#3f9337", "#1a6e23"]
 NO_DATA_COLOR = "#d4d4d4"  # neutral gray, clearly distinct from the cream mid-ramp
 
 
@@ -513,7 +561,12 @@ def _ramp(vals: pd.Series, m: dict):
     Color stops sit at evenly-spaced quantiles (pulled slightly off the extremes
     so outliers don't hog the ramp), with smooth interpolation between them.
     """
-    colors = PALETTE_DIV if m.get("diverging") else PALETTE_SEQ
+    if m.get("diverging"):
+        colors = PALETTE_DIV
+    elif m.get("scale") == "growth":
+        colors = PALETTE_GROWTH
+    else:
+        colors = PALETTE_SEQ
     n = len(colors)
     stops = []
     for i in range(n):
@@ -565,6 +618,37 @@ def _metric_render(df: pd.DataFrame, m: dict, zip_vals: Optional[dict] = None) -
             out.update({"expr": zexpr, "zmin": zzmin, "zmax": zzmax,
                         "legend": zlegend, "zip_only": True})
     return out
+
+
+def inject_zip_growth_scores(config: Config, zip_states) -> None:
+    """Rank ALL mapped ZIPs together and write growth_score into each state's
+    zips_*.json (must run before tiles/geo_index consume those files)."""
+    files = {}
+    rows = {}
+    for st in zip_states or []:
+        p = config.docs_dir / st["file"]
+        if not p.exists():
+            continue
+        g = json.loads(p.read_text(encoding="utf-8"))
+        files[st["file"]] = (p, g)
+        for feat in g.get("features", []):
+            z = feat.get("id")
+            if z:
+                rows[str(z)] = feat.get("properties") or {}
+    if not rows:
+        return
+    vals = pd.DataFrame.from_dict(rows, orient="index")
+    scores = _growth_score(vals, GROWTH_W_ZIP)
+    scored = 0
+    for _, (p, g) in files.items():
+        for feat in g.get("features", []):
+            s = scores.get(str(feat.get("id")))
+            if s is not None and pd.notna(s):
+                feat["properties"]["growth_score"] = int(s)
+                scored += 1
+        p.write_text(json.dumps(g, separators=(",", ":")), encoding="utf-8")
+    log.info("[map] growth score injected for %d/%d ZIPs (ranked across all "
+             "mapped states)", scored, len(rows))
 
 
 def gather_zip_values(config: Config, zip_states) -> dict:
@@ -625,6 +709,7 @@ ZIP_METRIC_KEYS = [
     "inbound_movers_pct", "value_income_ratio", "days_on_market",
     "price_cut_share", "inventory_yoy", "listings", "home_value_fc_12m",
     "property_tax_rate", "sec8_premium", "safmr_2br", "safmr_3br",
+    "growth_score",
 ]
 # County geo_index entries additionally carry the county-only metrics so the
 # on-map labels can print them.
@@ -843,7 +928,7 @@ def _geom_bbox(coords) -> List[float]:
 
 
 INT_KEYS = {"home_value", "rent", "exp_est", "median_income", "population",
-            "median_sale_price", "safmr_2br", "safmr_3br"}
+            "median_sale_price", "safmr_2br", "safmr_3br", "growth_score"}
 
 
 def _entry_values(props: dict, keys=None) -> dict:
@@ -1008,6 +1093,12 @@ def render_map_page(config: Config) -> Path:
                 zip_states.append(info)
         except Exception as exc:  # noqa: BLE001
             log.warning("[map] ZIP layer for %s failed: %s", code, exc)
+    # Growth score ranks across ALL mapped ZIPs — must land in the state jsons
+    # before the tile bake and geo index read them.
+    try:
+        inject_zip_growth_scores(config, zip_states)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("[map] ZIP growth scores skipped: %s", exc)
 
     tracked_fips = {mk.county.fips for mk in config.markets.values()}
     name_by_fips = df["name"].to_dict()

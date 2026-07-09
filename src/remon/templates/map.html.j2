@@ -310,6 +310,7 @@ function fmt(kind, v){
   if(kind === 'idx') return v.toFixed(2) + 'x US';
   if(kind === 'score') return Math.round(v) + '/10';
   if(kind === 'per1ku') return NF.format(Math.round(v)) + '/1k';
+  if(kind === 'score100') return Math.round(v) + '/100';
   return v;
 }
 const GROUPS = [];
@@ -385,7 +386,8 @@ function _op(cond, hov, base, dim){
 function fillOpacityExpr(layer, cond){
   if(layer === 'counties')
     return ['interpolate', ['linear'], ['zoom'],
-            8, _op(cond, 0.88, 0.72, 0.12),
+            5, _op(cond, 0.88, 0.72, 0.12),
+            7.5, _op(cond, 0.78, 0.58, 0.10),
             11, _op(cond, 0.7, 0.52, 0.08)];
   return ['interpolate', ['linear'], ['zoom'],
           5.6, 0,
@@ -1020,10 +1022,15 @@ function addLayers(){
   map.addLayer({ id:'counties-fill', type:'fill', source:'counties', 'source-layer':'counties',
     paint:{ 'fill-color': byKey[currentKey].expr,
             'fill-opacity': fillOpacityExpr('counties', null) } }, firstSymbolId);
+  // Crisp county borders that strengthen with zoom (the Reventure map look —
+  // boundaries carry the geography once the fills thin out).
   map.addLayer({ id:'counties-line', type:'line', source:'counties', 'source-layer':'counties',
     paint:{ 'line-color': ['case', ['boolean', ['feature-state', 'hover'], false],
-                           '#1b1f23', 'rgba(90,100,110,0.25)'],
-            'line-width': ['case', ['boolean', ['feature-state', 'hover'], false], 2, 0.3] } },
+                           '#1b1f23', 'rgba(45,55,65,0.5)'],
+            'line-width': ['interpolate', ['linear'], ['zoom'],
+              4, ['case', ['boolean', ['feature-state', 'hover'], false], 2, 0.4],
+              8, ['case', ['boolean', ['feature-state', 'hover'], false], 2.2, 0.9],
+              11, ['case', ['boolean', ['feature-state', 'hover'], false], 2.5, 1.3]] } },
     firstSymbolId);
 
   if(HAS_ZIPS){
@@ -1033,9 +1040,9 @@ function addLayers(){
               'fill-opacity': byKey[currentKey].zexpr ? fillOpacityExpr('zips', null) : 0 } },
       firstSymbolId);
     map.addLayer({ id:'zips-line', type:'line', source:'zips', 'source-layer':'zips', minzoom:5.5,
-      paint:{ 'line-color':'rgba(70,80,90,0.4)',
-              'line-opacity': ['interpolate', ['linear'], ['zoom'], 5.8, 0, 6.8, 0.4],
-              'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.3, 10, 0.9] } },
+      paint:{ 'line-color':'rgba(60,70,80,0.55)',
+              'line-opacity': ['interpolate', ['linear'], ['zoom'], 5.8, 0, 6.8, 0.55],
+              'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.3, 10, 1.1] } },
       firstSymbolId);
   }
 
