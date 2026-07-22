@@ -9,7 +9,7 @@
 <script src="https://unpkg.com/pmtiles@3.2.1/dist/pmtiles.js"></script>
 <style>
   :root { --accent:#1f6feb; --ink:#1b1f23; --muted:#5b6670; --line:#e3e7eb;
-          --card:0 2px 10px rgba(0,0,0,.15); }
+          --card:0 2px 10px rgba(0,0,0,.15); --barh:102px; }
   * { box-sizing:border-box; }
   [hidden] { display:none !important; }
   html, body { margin:0; height:100%; overflow:hidden; }
@@ -28,16 +28,27 @@
            padding:5px 11px; font-size:.82rem; cursor:pointer; white-space:nowrap; }
   .reset:hover { border-color:var(--accent); color:var(--accent); }
 
-  #map { position:fixed; top:48px; left:0; right:0; bottom:0; }
-  .veil { position:fixed; top:48px; left:0; right:0; bottom:0; z-index:4;
+  #map { position:fixed; top:var(--barh); left:0; right:0; bottom:0; }
+  .veil { position:fixed; top:var(--barh); left:0; right:0; bottom:0; z-index:4;
           background:#f6f8fa; pointer-events:none; opacity:1; transition:opacity .5s; }
 
-  /* ---- floating control card (search + chips + metric pills) ---- */
-  .ctl-card { position:fixed; top:60px; left:12px; z-index:7; width:340px;
-              max-width:calc(100vw - 24px); background:#fff; border-radius:10px;
-              box-shadow:var(--card); padding:10px; }
-  .searchwrap { position:relative; }
-  #searchBox { width:100%; padding:9px 12px; border:1px solid var(--line); border-radius:8px;
+  /* ---- Zillow-style control bar: search + dropdown pills, map stays clear ---- */
+  .mapbar { position:fixed; top:48px; left:0; right:0; height:54px; z-index:9;
+            display:flex; align-items:center; gap:8px; padding:0 16px;
+            background:#fff; border-bottom:1px solid var(--line); }
+  .mwrap { position:relative; }
+  .mbar-btn { border:1px solid var(--line); background:#fff; color:#33404d;
+              border-radius:999px; padding:8px 14px; font-size:.86rem; font-weight:600;
+              cursor:pointer; white-space:nowrap; }
+  .mbar-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .mbar-btn.open { border-color:var(--accent); color:var(--accent);
+                   box-shadow:0 0 0 2px rgba(31,111,235,.15); }
+  .mbar-btn .car { font-size:.7rem; margin-left:4px; color:var(--muted); }
+  .mdrop { position:absolute; top:calc(100% + 8px); left:0; width:330px; z-index:11;
+           background:#fff; border-radius:12px; box-shadow:0 4px 18px rgba(0,0,0,.18);
+           padding:10px; }
+  .searchwrap { position:relative; width:280px; flex:0 1 280px; }
+  #searchBox { width:100%; padding:9px 12px; border:1px solid var(--line); border-radius:999px;
                font-size:.92rem; outline:none; }
   #searchBox:focus { border-color:var(--accent); box-shadow:0 0 0 2px rgba(31,111,235,.15); }
   .sresults { position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:7;
@@ -48,11 +59,12 @@
                  display:flex; justify-content:space-between; gap:8px; }
   .sresults li .sub { color:var(--muted); font-size:.78rem; }
   .sresults li.active, .sresults li:hover { background:#eef4ff; }
-  .chips { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+  .chips { display:flex; gap:6px; flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
+  .chips::-webkit-scrollbar { display:none; }
   .chip { border:1px solid var(--line); background:#f6f8fa; color:#33404d; border-radius:999px;
-          padding:4px 11px; font-size:.8rem; cursor:pointer; }
+          padding:7px 13px; font-size:.82rem; cursor:pointer; flex:0 0 auto; }
   .chip:hover { border-color:var(--accent); color:var(--accent); }
-  .mgroups { margin-top:8px; max-height:calc(100vh - 330px); overflow-y:auto; }
+  .mgroups { max-height:min(62vh, 520px); overflow-y:auto; }
   .mghead { width:100%; display:flex; justify-content:space-between; align-items:center;
             border:none; background:none; padding:8px 6px 4px; font-size:.74rem; font-weight:700;
             color:#33404d; cursor:pointer; text-transform:uppercase; letter-spacing:.04em; }
@@ -68,11 +80,7 @@
   .mrow.active .dot { border-color:#fff; background:#fff; }
 
   /* ---- filters ---- */
-  .fbtn { width:100%; margin-top:8px; border:1px solid var(--line); background:#f6f8fa;
-          color:#33404d; border-radius:8px; padding:7px 12px; font-size:.85rem;
-          font-weight:600; cursor:pointer; text-align:left; }
-  .fbtn:hover { border-color:var(--accent); color:var(--accent); }
-  .fpanel { margin-top:8px; border-top:1px solid var(--line); padding-top:8px; }
+  .fpanel { padding:2px 2px 0; }
   .frow { padding:6px 0 2px; }
   .frow .fhead { display:flex; align-items:center; justify-content:space-between;
                  font-size:.8rem; font-weight:600; color:#33404d; }
@@ -133,7 +141,7 @@
              line-height:1.45; z-index:8; }
 
   /* ---- stats panel (desktop card / mobile bottom sheet) ---- */
-  .panel { position:fixed; top:60px; right:12px; z-index:6; width:300px;
+  .panel { position:fixed; top:calc(var(--barh) + 12px); right:12px; z-index:6; width:300px;
            max-height:calc(100vh - 140px); overflow-y:auto; background:#fff;
            border-radius:10px; box-shadow:var(--card);
            opacity:0; transform:translateX(12px); pointer-events:none; visibility:hidden;
@@ -177,13 +185,19 @@
 
   /* ---- mobile (and short landscape viewports) ---- */
   @media (max-width:640px), (max-height:430px){
+    :root { --barh:150px; }
     .topbar { gap:10px; padding:0 12px; }
     .topbar .gen { display:none; }
-    .ctl-card { top:56px; left:8px; right:8px; width:auto; max-width:none; }
-    .chips { flex-wrap:nowrap; overflow-x:auto; scrollbar-width:none; }
-    .chips::-webkit-scrollbar { display:none; }
-    .chip { flex:0 0 auto; }
-    .mgroups { max-height:34vh; }
+    /* mapbar wraps: search on its own row, pills + chips scroll beneath */
+    .mapbar { height:102px; flex-wrap:wrap; gap:6px; padding:6px 10px;
+              align-content:flex-start; }
+    .searchwrap { width:100%; flex:1 0 100%; }
+    #searchBox { padding:8px 12px; }
+    .mbar-btn { padding:7px 12px; font-size:.82rem; }
+    /* dropdowns become full-width sheets under the bar */
+    .mdrop { position:fixed; top:var(--barh); left:8px; right:8px; width:auto;
+             max-height:calc(100vh - var(--barh) - 20px); overflow-y:auto; }
+    .mgroups { max-height:none; }
     .mrow { min-height:40px; }
     .legend-card { bottom:12px; left:8px; }
     .panel { top:auto; left:0; right:0; bottom:0; width:auto; border-radius:14px 14px 0 0;
@@ -204,24 +218,35 @@
   <div id="map"></div>
   <div class="veil" id="veil"></div>
 
-  <div class="ctl-card">
+  <div class="mapbar">
     <div class="searchwrap">
       <input id="searchBox" type="text" placeholder="Search county or ZIP…"
              autocomplete="off" spellcheck="false" aria-label="Search county or ZIP">
       <ul class="sresults" id="searchResults" hidden></ul>
     </div>
-    <div class="chips" id="chips" hidden></div>
-    <div class="mgroups" id="mgroups"></div>
-    <button class="fbtn" id="filterBtn" type="button">⚲ Filters<span id="filterCount"></span></button>
-    <div class="fpanel" id="filterPanel" hidden>
-      <div id="filterRows"></div>
-      <div class="fadd">
-        <select id="filterAdd" aria-label="Add a data filter">
-          <option value="">+ Add data filter…</option>
-        </select>
-        <button class="freset" id="filterReset" type="button">Reset</button>
+    <div class="mwrap">
+      <button class="mbar-btn" id="metricBtn" type="button" aria-haspopup="true">
+        <span id="metricBtnLabel">Metric</span><span class="car">▾</span></button>
+      <div class="mdrop" id="metricDrop" hidden>
+        <div class="mgroups" id="mgroups"></div>
       </div>
     </div>
+    <div class="mwrap">
+      <button class="mbar-btn" id="filterBtn" type="button" aria-haspopup="true">⚲
+        Filters<span id="filterCount"></span><span class="car">▾</span></button>
+      <div class="mdrop" id="filterDrop" hidden>
+        <div class="fpanel" id="filterPanel">
+          <div id="filterRows"></div>
+          <div class="fadd">
+            <select id="filterAdd" aria-label="Add a data filter">
+              <option value="">+ Add data filter…</option>
+            </select>
+            <button class="freset" id="filterReset" type="button">Reset</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="chips" id="chips" hidden></div>
   </div>
 
   <div class="legend-card" id="legendCard">
@@ -535,11 +560,24 @@ function renderFilterRows(){
     wrap.appendChild(row);
   });
 }
-$('filterBtn').addEventListener('click', () => {
-  const p = $('filterPanel');
-  p.hidden = !p.hidden;
-  if(!p.hidden) buildFilterSelect();
-});
+function closeDrops(){
+  $('metricDrop').hidden = true;
+  $('filterDrop').hidden = true;
+  $('metricBtn').classList.remove('open');
+  $('filterBtn').classList.remove('open');
+}
+function toggleDrop(btnId, dropId, onOpen){
+  const d = $(dropId), was = d.hidden;
+  closeDrops();
+  if(was){
+    d.hidden = false;
+    $(btnId).classList.add('open');
+    if(onOpen) onOpen();
+  }
+}
+$('metricBtn').addEventListener('click', () => toggleDrop('metricBtn', 'metricDrop'));
+$('filterBtn').addEventListener('click', () =>
+  toggleDrop('filterBtn', 'filterDrop', buildFilterSelect));
 $('filterAdd').addEventListener('change', () => {
   const key = $('filterAdd').value;
   if(!key) return;
@@ -569,8 +607,8 @@ function setMetric(btn){
   }
   refreshLabels();
   if(sel.props) renderPanelRows();
-  if(window.matchMedia(MOBILE_MQ).matches)
-    document.querySelectorAll('.mgroup').forEach(g => g.classList.add('closed'));
+  $('metricBtnLabel').textContent = m.label;
+  closeDrops();  // picking a metric applies + dismisses, Zillow-style
 }
 (function buildSelector(){
   const wrap = $('mgroups');
@@ -603,6 +641,7 @@ function setMetric(btn){
   });
 })();
 setLegend(currentKey);
+$('metricBtnLabel').textContent = byKey[currentKey].label;
 
 /* ---------- stats panel ---------- */
 function percentile(m, v){
@@ -1125,6 +1164,7 @@ try {
   map.on('click', e => {
     dismissCoach();
     infopop.hidden = true;
+    closeDrops();
     pending = null;
     const layers = layerPref();
     const f = layers.length ? pickFeature(map.queryRenderedFeatures(e.point, { layers: layers })) : null;
@@ -1136,6 +1176,7 @@ try {
   document.addEventListener('keydown', e => {
     if(e.key !== 'Escape') return;
     if(!sresults.hidden){ hideResults(); return; }
+    if(!$('metricDrop').hidden || !$('filterDrop').hidden){ closeDrops(); return; }
     if(!infopop.hidden){ infopop.hidden = true; return; }
     if(panel.classList.contains('open')){ closePanel(); return; }
     resetView();
